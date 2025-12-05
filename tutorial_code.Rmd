@@ -70,66 +70,141 @@ While *EMC2* is flexibly designed to allow researchers to implement any mapping,
 
 
 
+\begin{figure}
 \begin{tikzpicture}[
     node distance=1.0cm,
     box/.style={rectangle, draw, rounded corners, text width=2.5cm, minimum height=1cm, align=center},
-    vblock/.style={anchor=north, align=center}
+    vblock/.style={anchor=north, draw, rounded corners, align=center}
 ]
 
-\node[box, text width=4.0cm] (data) {Data};
-\node[box, text width=4.0cm, right=1cm of data] (covariates) {Covariates};
-\node[box, text width=4.0cm, right=1cm of covariates] (deltarule) {Delta rule};
-
-% arrows
-\draw[->] (data) -- (covariates);
-\draw[->] (covariates) -- (deltarule);
-
-% verbatim-ish tables underneath
-\node[vblock, text width=5.0cm, below=0.25cm of data] (data_tab) {
+\node[box, text width=4.5cm] (data) {Data};
+\node[vblock, text width=4.5cm, below=0.25cm of data] (data_tab) {
 \begin{lstlisting}[basicstyle=\footnotesize\ttfamily]
     R rew s_left s_right
- left   1  sym_D   sym_e
-right   0  sym_T   sym_t
-right   0  sym_e   sym_D
- left   1  sym_D   sym_e
- left   1  sym_T   sym_t
-right   1  sym_t   sym_T
+ left   1    s_D     s_e
+right   0    s_T     s_t
+right   0    s_e     s_D
+ left   1    s_D     s_e
+ left   1    s_T     s_t
+right   1    s_t     s_T
 \end{lstlisting}
 };
 
-\node[vblock, text width=5.0cm, below=0.25cm of covariates] (covariates_tab) {
+\node[box, text width=6.0cm, right=3cm of data] (dadm) {DADM};
+\node[vblock, text width=6.0cm, below=0.25cm of dadm] (dadm_tab) {
 \begin{lstlisting}[basicstyle=\footnotesize\ttfamily]
-sym_D sym_e sym_T sym_t
-    1    NA    NA    NA
-   NA    NA    NA     0
-    0    NA    NA    NA
-    1    NA    NA    NA
-   NA    NA     1    NA
-   NA    NA     1    NA
+ t     R    lR s_D s_e s_T s_t
+ 1  left  left   1  NA  NA  NA
+ 1  left right   1  NA  NA  NA
+ 2 right  left  NA  NA  NA   0
+ 2 right right  NA  NA  NA   0
+ 3 right  left   0  NA  NA  NA
+ 3 right right   0  NA  NA  NA
+ 9  left  left   1  NA  NA  NA
+ 9  left right   1  NA  NA  NA
+10  left  left  NA  NA   1  NA
+10  left right  NA  NA   1  NA
+11 right  left  NA  NA   1  NA
+11 right right  NA  NA   1  NA
+\end{lstlisting}
+};
+\node[box, text width=1.0cm, right=0.5cm of dadm] (rates) {Drift\\rates};
+\node[vblock, text width=1.0cm, below=0.25cm of rates] (rates_tab) {
+\begin{lstlisting}[basicstyle=\footnotesize\ttfamily]
+  v
+0.0
+0.0
+0.0
+0.0
+0.0
+0.5
+0.4
+0.0
+0.0
+0.0
+0.0
+0.5
 \end{lstlisting}
 };
 
-\node[vblock, text width=5.0cm, below=0.25cm of deltarule] (deltarule_tab) {
+\node[box, text width=3.5cm, below=2.5cm of data_tab] (covmap) {Covariate map};
+\node[box, text width=3.5cm, right=1.0cm of covmap] (deltarule) {Delta rule};
+\node[vblock, text width=3.5cm, below=0.25cm of covmap] (covmap_tab) {
 \begin{lstlisting}[basicstyle=\footnotesize\ttfamily]
-sym_D sym_e sym_T sym_t
-0.000     0   0.0     0
-0.200     0   0.0     0
-0.200     0   0.0     0
-0.160     0   0.0     0
-0.328     0   0.0     0
-0.328     0   0.2     0
+s_D s_e s_T s_t
+  1   0   0   0
+  0   1   0   0
+  0   0   1   0
+  0   0   0   1
+  0   1   0   0
+  1   0   0   0
+  1   0   0   0
+  0   1   0   0
+  0   0   1   0
+  0   0   0   1
+  0   0   0   1
+  0   0   1   0
 \end{lstlisting}
 };
+
+\node[vblock, text width=3.5cm, below=0.25cm of deltarule] (deltarule_tab) {
+\begin{lstlisting}[basicstyle=\footnotesize\ttfamily]
+  s_D s_e s_T s_t
+0.000   0 0.0   0
+0.000   0 0.0   0
+0.200   0 0.0   0
+0.200   0 0.0   0
+0.200   0 0.0   0
+0.200   0 0.0   0
+0.160   0 0.0   0
+0.160   0 0.0   0
+0.328   0 0.0   0
+0.328   0 0.0   0
+0.328   0 0.2   0
+0.328   0 0.2   0
+\end{lstlisting}
+};
+
+
+\node[box, text width=1.5cm, right=1cm of deltarule] (weight) {Weight};
+\node[vblock, text width=1.5cm, below=0.25cm of weight] (weight_tab) {
+\begin{lstlisting}[basicstyle=\footnotesize\ttfamily]
+  w
+2.5
+2.5
+2.5
+2.5
+2.5
+2.5
+2.5
+2.5
+2.5
+2.5
+2.5
+2.5
+\end{lstlisting}
+};
+
 
 % more arrows
-\draw[->] (data_tab) -- (covariates_tab);
-\draw[->] (covariates_tab) -- (deltarule_tab);
+%\draw[->] (data) -- (dadm);
+\draw[->] (data_tab) -- node[midway, sloped, above, font=\footnotesize] {design(\textbf{functions}, ...)} (dadm_tab);
+\draw[->] (dadm_tab) -- (deltarule);
+\draw[->] (dadm_tab) -- node[midway, sloped, above, font=\footnotesize] {make\_trend(\textbf{map}, ...)} (covmap);
+\draw[->] (covmap_tab) -- node[midway, sloped, above, font=\footnotesize] {$\times$} (deltarule_tab);
+\draw[->] (deltarule_tab) -- node[midway, sloped, above, font=\footnotesize] {$\times$} (weight_tab);
+\draw[->] (weight_tab.east) -- node[midway, sloped, above, font=\footnotesize] {row sums} (rates_tab);
+
 
 \end{tikzpicture}
+\caption{Overview of steps. Users need to specify functions in two places. First, a set of functions that can be applied to the \texttt{dadm} and generates the covariate columns (here, \texttt{s\_D, s\_e, s\_T, s\_t}). These functions are supplied to the \texttt{design()} function of \texttt{EMC2}. Second, a set of functions that can be applied to the \texttt{dadm} and generates one (or optionally more) covariate map(s). These are supplied to \texttt{make\_trend()}. The trial-wise drift rate is the rowsum of the updated covariate multiplied by the covariate map(s) and the weight.}
+\end{figure}
+
+
 
 
 ### 1. Covariate specification
-In this section, we start by formatting the empirical data. We start by downloading dataset 1 from [Miletic et al elife]. It contains 24 columns of potentially useful variables; here, we aim to extract the minimum we need for modelling the data. Some are columns that *EMC2* always requires for choice tasks: columns indicating subject number (`subjects`), stimulus (`S`), and response and response time (`R`, `rt`). `S` and `R` are usually response-coded, meaning they typically refer to the response location or hand (left/right) or response button (e.g., 'z', 'm', 'left arrow key'). Let us start with extracting those:
+In this section, we start by formatting the empirical data. We start by downloading dataset 1 from [@Miletic2021]. It contains 24 variables; here, we aim to extract the minimum we need for modelling the data. Some are columns that *EMC2* always requires for choice tasks: columns indicating subject number (`subjects`), stimulus (`S`), and response and response time (`R`, `rt`). `S` and `R` are usually response-coded, meaning they typically refer to the response location or hand (left/right) or response button (e.g., 'z', 'm', 'left arrow key'). Let us start with extracting those:
 
 ```{r load_data}
 load('./data/data_exp1.RData')
@@ -161,9 +236,9 @@ Instrumental learning tasks minimally add two pieces of information: the `feedba
 dat$reward <- dat$reward / 100
 
 # Let's extract the symbols that were presented as `s_left` and `s_right`.
-# and let's add a prefix "sym_"
-dat$s_left <- paste0('sym_', dat$appear_left)
-dat$s_right <- paste0('sym_', dat$appear_right)
+# and let's add a prefix "s_"
+dat$s_left <- paste0('s_', dat$appear_left)
+dat$s_right <- paste0('s_', dat$appear_right)
 
 head(dat[,c('subjects', 'S', 'R', 'rt', 'reward', 's_left', 's_right')])
 # based on the combination of R and s_left and s_right, we can now determine
@@ -187,20 +262,8 @@ For fitting in *EMC2*, we need to create one column per symbol, with the values 
 For this reason, we should not add the covariate columns to the data directly, but rather define *functions* that create covariate columns based on the data. When simulating new data, these functions are re-applied after each trial, ensuring that the covariate columns are correct for simulated data. Here's the idea:
 
 ```{r define_covariates}
-# # First, let's define a function that creates column 'RS': response symbol.
-# RS <- function(data) {
-#   # which *symbol* was chosen?
-#   ifelse(data$R=='left', data$s_left, data$s_right)
-# }
-#
-# # make a copy of the data (tmp) to illustrate the result if this function
-# # is applied to the data - but don't add the factor to the data.
-# tmp <- dat
-# tmp$RS <- RS(tmp)
-# head(tmp)
-
 make_covariate_column <- function(data, covariate_symbol) {
-    # Which response symbol was chosen?
+    # Which response symbol (RS) was chosen?
     RS <- ifelse(data$R=='left', data$s_left, data$s_right)
     data[,covariate_symbol] <- NA
     data[RS == covariate_symbol, covariate_symbol] <- data[RS == covariate_symbol, 'reward']
@@ -208,9 +271,9 @@ make_covariate_column <- function(data, covariate_symbol) {
 }
 
 tmp <- dat
-tmp$sym_D <- make_covariate_column(tmp, "sym_D")
-tmp$sym_e <- make_covariate_column(tmp, "sym_e")
-tmp$sym_t <- make_covariate_column(tmp, "sym_t")
+tmp$s_D <- make_covariate_column(tmp, "s_D")
+tmp$s_e <- make_covariate_column(tmp, "s_e")
+tmp$s_t <- make_covariate_column(tmp, "s_t")
 head(tmp)
 
 # To facilitate, we can wrap this with a function generator -
@@ -247,22 +310,6 @@ emc <- make_emc(dat, design_RDM)
 head(emc[[1]]$data[[1]])
 ```
 
-```{r get_verbatim_examples, include=FALSE, eval=FALSE}
-symcolns <- c('sym_D', 'sym_e', 'sym_T', 'sym_t')
-tmp <- emc[[1]]$data[[1]][,c('S', 'R', 'rt', 'reward', 's_left', 's_right', 'sym_D', 'sym_e', 'sym_T', 'sym_t')] # 1, 3, 2, 7
-tmp$rt <- round(tmp$rt,3) 
-rowidx1 <- tmp$s_left%in% c('sym_D', 'sym_e', 'sym_T', 'sym_t')
-tmp <- tmp[rowidx1,]
-tmp[seq(1, 12, 2),]
-
-kernel_pars <- c('v.q0'=0, 'v.alpha'=0.2)
-tmp2 <- apply_kernel(kernel_pars, emc = emc, subject=1)
-tmp2 <- tmp2[rowidx1, c(1,3,2,7)][seq(1,12,2),]
-colnames(tmp2) <- c('sym_D', 'sym_e', 'sym_T', 'sym_t')
-tmp2
-#head(cbind(emc[[1]]$data[[1]][,all_symbols], apply_kernel(kernel_pars, emc = emc, subject=1)))
-
-```
 
 ### 2. Apply the delta rule
 Handling trialwise covariates works through `trend` objects in *EMC2*. In this object, you specify (1) the covariate of interest, (2) a kernel to apply to the covariate, and (3) which decision parameter is informed by the resulting covariate, and (4) the functional form of the mapping between the resulting covariate and the decision parameters, referred to as the 'base'.
@@ -289,6 +336,7 @@ emc <- make_emc(dat, design_RDM)
 kernel_pars <- c('v.q0'=0, 'v.alpha'=0.2)
 head(cbind(emc[[1]]$data[[1]][,all_symbols], apply_kernel(kernel_pars, emc = emc, subject=1)))
 ```
+
 
 ### 3. Define the trial-wise mapping between covariates and each accumulator
 By default, *EMC2* applies the base to all updated covariates (i.e., it multiplies the base with the rowsums of the updated kernel). However, on each trial, only two stimuli were shown, so only they should influence the respective drift rates. Therefore, we need to create a mapping between covariates and accumulators. Such a map is a matrix specifying the weight of each covariate for each drift rate - most will be 0. The simplest type of map corresponds to an RL-RD, which just maps 1 covariate to 1 accumulator in each row:
@@ -325,7 +373,40 @@ design_RDM <- design(model=RDM,
                      report_p_vector = FALSE)
 
 emc <- make_emc(dat, design_RDM)
+```
 
+```{r get_verbatim_examples, include=FALSE, eval=FALSE}
+symcolns <- c('s_D', 's_e', 's_T', 's_t')
+tmp <- emc[[1]]$data[[1]][,c('trials', 'S', 'R', 'rt', 'lR', 'reward', 's_left', 's_right', 's_D', 's_e', 's_T', 's_t')] # 1, 3, 2, 7
+tmp$rt <- round(tmp$rt,3)
+rowidx1 <- tmp$s_left%in% c('s_D', 's_e', 's_T', 's_t')
+tmp <- tmp[rowidx1,]
+tmp[seq(1, 12, 2),]
+
+kernel_pars <- c('v.q0'=0, 'v.alpha'=0.2)
+tmp2 <- apply_kernel(kernel_pars, emc = emc, subject=1)
+tmp2 <- tmp2[rowidx1, c(1,3,2,7)]
+colnames(tmp2) <- c('s_D', 's_e', 's_T', 's_t')
+tmp2[seq(1,12,2),]
+
+## example 2: In dadm space
+dadm <- tmp#[c()]
+updated_covs <- tmp2
+tmp3 <- attr(emc[[1]]$data[[1]], 'covariate_maps')[[1]]
+tmp3[rowidx1,]
+
+dadm[1:12,c('trials', 'R', 'lR',  c('s_D', 's_e', 's_T', 's_t'))]
+updated_covs[1:12,]
+tmp3[rowidx1,c(1,3,2,7)][1:12,]
+
+dadm_example <- dadm[1:12,c('trials', 'R', 'lR',  c('s_D', 's_e', 's_T', 's_t'))]
+colnames(dadm_example)[1] <- 't'
+dadm_example
+
+updated_covs[1:12,]
+
+## drift rates?
+rowSums(updated_covs[1:12,]*tmp3[rowidx1,c(1,3,2,7)][1:12,]*2.5)
 ```
 
 Note how the drift rate is now only influenced by the covariate that corresponds to the symbol that the accumulator codes for.
@@ -456,19 +537,14 @@ emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp1_subset_rlard.RData'
 ```
 
 ```{r pp_rlard}
-# load('./samples/exp1_subset_rlard.RData')
-# ppC <- predict(emc, n_post=20, n_cores=50)
-# # ## SOMETHING WRONG HERE!!
-# #
-# # debug(make_data)
-# # ppC <- predict(emc, n_cores=1, return_trialwise_parameters=TRUE, conditional_on_data=TRUE)
-# #
+load('./samples/exp1_subset_rlard.RData')
+ppC <- predict(emc, n_post=20, n_cores=50)
 # # ppC[is.infinite(ppC$rt),]
 # # tpars <- attr(ppC, 'trialwise_parameters')[[1]]
 # # dadm <- emc[[1]]$data[[1]]
 # # tpars[dadm$subjects==7&dadm$trials==70,]
 #
-# plot_exp1(dat=dat, pp=ppC)
+plot_exp1(dat=dat, pp=ppC)
 ```
 
 
