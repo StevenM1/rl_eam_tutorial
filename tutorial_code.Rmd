@@ -37,15 +37,14 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, comment = N
 
 In this tutorial, we will demonstrate how to design combinations of reinforcement learning and evidence accumulation models (RL-EAMs) and fit them to data from instrumental learning tasks using hierarchical Bayesian methods. We will utilize the *EMC2* package, assuming some prior knowledge of its functionalities (for reference, see the *EMC2* tutorial [@stevensonEMC2PackageCognitive2024]). 
 
-First, let's load the required packages and data (note that you will also need the Hmisc package installed):
+First, let's load the required packages and data:
 
 ```{r set-up}
 rm(list = ls())
 # TMP -- install the right branch
-# remotes::install_github("ampl-psych/EMC2@trendy_customkernel_fix",dependencies=TRUE, Ncpus=8);.rs.restartR()
+# remotes::install_github("ampl-psych/EMC2@oo_refactor_simd",dependencies=TRUE, Ncpus=8);.rs.restartR()
 # END TMP
 library(EMC2)
-library(Hmisc)
 set.seed(1) # for reproducibility
 
 # This is some code that contains plotting functions used later on in this tutorial
@@ -58,17 +57,14 @@ if(Sys.info()[['nodename']] == 'tux22psy') {
     "rl_eam_tutorial/refs/heads/main/RL_plotting_utils.R")
 }
 source(code_url)
-
 ```
 
 # From data to a basic RL-EAM: the RL-RD
 While *EMC2* is flexibly designed to allow researchers to implement any mapping, in most applications of RL-EAMs, it is assumed that drift rates are a linear function of the Q-values. Key is to map the Q-values to the accumulator drift rates. This entails that we:
 
 1. Specify the covariates in the data;
-2. Apply the delta-rule to each covariate separately;
-3. Define the trial-wise mapping between covariates and each accumulator.
-
-
+2. Apply the delta rule to each covariate separately;
+3. Define the trial-wise mapping between covariates and each accumulator's drift rate.
 
 \begin{figure}
 \begin{tikzpicture}[
@@ -375,57 +371,86 @@ design_RDM <- design(model=RDM,
 emc <- make_emc(dat, design_RDM)
 ```
 
-```{r get_verbatim_examples, include=FALSE, eval=FALSE}
-symcolns <- c('s_D', 's_e', 's_T', 's_t')
-tmp <- emc[[1]]$data[[1]][,c('trials', 'S', 'R', 'rt', 'lR', 'reward', 's_left', 's_right', 's_D', 's_e', 's_T', 's_t')] # 1, 3, 2, 7
-tmp$rt <- round(tmp$rt,3)
-rowidx1 <- tmp$s_left%in% c('s_D', 's_e', 's_T', 's_t')
-tmp <- tmp[rowidx1,]
-tmp[seq(1, 12, 2),]
-
-kernel_pars <- c('v.q0'=0, 'v.alpha'=0.2)
-tmp2 <- apply_kernel(kernel_pars, emc = emc, subject=1)
-tmp2 <- tmp2[rowidx1, c(1,3,2,7)]
-colnames(tmp2) <- c('s_D', 's_e', 's_T', 's_t')
-tmp2[seq(1,12,2),]
-
-## example 2: In dadm space
-dadm <- tmp#[c()]
-updated_covs <- tmp2
-tmp3 <- attr(emc[[1]]$data[[1]], 'covariate_maps')[[1]]
-tmp3[rowidx1,]
-
-dadm[1:12,c('trials', 'R', 'lR',  c('s_D', 's_e', 's_T', 's_t'))]
-updated_covs[1:12,]
-tmp3[rowidx1,c(1,3,2,7)][1:12,]
-
-dadm_example <- dadm[1:12,c('trials', 'R', 'lR',  c('s_D', 's_e', 's_T', 's_t'))]
-colnames(dadm_example)[1] <- 't'
-dadm_example
-
-updated_covs[1:12,]
-
-## drift rates?
-rowSums(updated_covs[1:12,]*tmp3[rowidx1,c(1,3,2,7)][1:12,]*2.5)
+```{r get_verbatim_examples, include=FALSE, eval=TRUE}
+# symcolns <- c('s_D', 's_e', 's_T', 's_t')
+# tmp <- emc[[1]]$data[[1]][,c('trials', 'S', 'R', 'rt', 'lR', 'reward', 's_left', 's_right', 's_D', 's_e', 's_T', 's_t')] # 1, 3, 2, 7
+# tmp$rt <- round(tmp$rt,3)
+# rowidx1 <- tmp$s_left%in% c('s_D', 's_e', 's_T', 's_t')
+# tmp <- tmp[rowidx1,]
+# tmp[seq(1, 12, 2),]
+# 
+# kernel_pars <- c('v.q0'=0, 'v.alpha'=0.2)
+# tmp2 <- apply_kernel(kernel_pars, emc = emc, subject=1)
+# tmp2 <- tmp2[rowidx1, c(1,3,2,7)]
+# colnames(tmp2) <- c('s_D', 's_e', 's_T', 's_t')
+# tmp2[seq(1,12,2),]
+# 
+# ## example 2: In dadm space
+# dadm <- tmp#[c()]
+# updated_covs <- tmp2
+# tmp3 <- attr(emc[[1]]$data[[1]], 'covariate_maps')[[1]]
+# tmp3[rowidx1,]
+# 
+# dadm[1:12,c('trials', 'R', 'lR',  c('s_D', 's_e', 's_T', 's_t'))]
+# updated_covs[1:12,]
+# tmp3[rowidx1,c(1,3,2,7)][1:12,]
+# 
+# dadm_example <- dadm[1:12,c('trials', 'R', 'lR',  c('s_D', 's_e', 's_T', 's_t'))]
+# colnames(dadm_example)[1] <- 't'
+# dadm_example
+# 
+# updated_covs[1:12,]
+# 
+# ## drift rates?
+# rowSums(updated_covs[1:12,]*tmp3[rowidx1,c(1,3,2,7)][1:12,]*2.5)
 ```
 
 Note how the drift rate is now only influenced by the covariate that corresponds to the symbol that the accumulator codes for.
 
 We are now ready to fit the RL-RD!
 
-```{r fit_rlrd, eval=FALSE}
-emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp1_subset_rlrd.RData')
+```{r fit_rlrd, eval=TRUE}
+# emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp1_subset_rlrd.RData')
 ```
 
 ```{r pp_rlrd}
-load('./samples/exp1_subset_rlrd.RData')
-ppC <- predict(emc, n_post=20, n_cores=50)
-plot_exp1(dat=dat, pp=ppC)
+# load('./samples/exp1_subset_rlrd.RData')
+# ppC <- predict(emc, n_post=20, n_cores=50)
+# plot_exp1(dat=dat, pp=ppC)
 ```
 
 ### 4. Feedback generator
 ***ToDo: Add a feedback generator function. This requires more work on EMC2 for a principled implementation.***
-Need to check with Niek
+For now, let's try this
+```{r make_feedback_generator}
+feedback_generator <- function(d) {
+    data <- d[d$lR==levels(d$lR)[1],]
+    p_chosen <- ifelse(data$R=='left', data$p_left, data$p_right)
+    rewards <- rbinom(nrow(data), 1, p_chosen)
+    rep(rewards, each=nlevels(d$lR))
+    # alternatively, map symbol to reward probability or reward function here.
+    # can change trialwise/subjectwise etc
+}
+trend$v$feedback_fun <- list('reward'=feedback_generator)
+
+design_RDM <- design(model=RDM,
+                     data=dat,
+                     functions=make_covariate_columns,
+                     matchfun=function(d) d$S==d$lR,
+                     formula=list(B ~ 1, v ~ 1, t0 ~ 1),
+                     trend=trend,
+                     constants=c('v.q0'=0),
+                     report_p_vector = FALSE)
+
+emc <- make_emc(dat, design_RDM)
+emc <- fit(emc, cores_per_chain=15, fileName='./samples/exp1_subset_rlrd.RData')
+```
+
+```{r }
+load('./samples/exp1_subset_rlrd.RData')
+ppU <- predict(emc, n_cores=30, conditional_on_data=FALSE)
+plot_exp1(dat=dat, pp=ppU[is.finite(ppU$rt),])
+```
 
 ## Example: RL-DDM
 The above illustrates the basics, and with these, it is straightforward to construct other RL-EAMs. In most cases, it is a matter of changing the mapping function, and potentially the EAM itself. For example, a popular choice is the RL-DDM, which is the following:
@@ -447,6 +472,7 @@ trend <- make_trend(par_names='v',
                     bases='lin',
                     phase='posttransform',
                     maps = list(make_RL_DDM_map))
+trend$v$feedback_fun <- list('reward'=feedback_generator)
 
 design_DDM <- design(model=DDM,
                      data=dat,
@@ -460,7 +486,7 @@ design_DDM <- design(model=DDM,
 emc <- make_emc(dat, design_DDM)
 head(attr(emc[[1]]$data[[1]], 'covariate_maps')[[1]])
 ```
-```{r fit_rlddm, eval=FALSE}
+```{r fit_rlddm, eval=TRUE}
 emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp1_subset_rlddm.RData')
 ```
 
@@ -469,8 +495,8 @@ However, the RL-DDM does not fit the response time distributions very well:
 ```{r pp_rlddm}
 ## plot here
 load('./samples/exp1_subset_rlddm.RData')
-ppC <- predict(emc, n_post=20, n_cores=50)
-plot_exp1(dat=dat, pp=ppC)
+ppU <- predict(emc, n_cores=50)
+plot_exp1(dat=dat, pp=ppU[is.finite(ppU$rt),])
 ```
 
 ## Example: RL-ARD
@@ -519,6 +545,7 @@ trend <- make_trend(par_names='v',
                     phase='posttransform',
                     maps = list('d'=make_RL_ARD_difference,
                                 's'=make_RL_ARD_sum))
+trend$v$feedback_fun <- list('reward'=feedback_generator)
 
 design_RDM <- design(model=RDM,
                      data=dat,
@@ -532,32 +559,510 @@ design_RDM <- design(model=RDM,
 emc <- make_emc(dat, design_RDM)
 ```
 
-```{r fit_rlard, eval=FALSE}
+```{r fit_rlard, eval=TRUE}
 emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp1_subset_rlard.RData')
 ```
 
 ```{r pp_rlard}
 load('./samples/exp1_subset_rlard.RData')
-ppC <- predict(emc, n_post=20, n_cores=50)
-# # ppC[is.infinite(ppC$rt),]
-# # tpars <- attr(ppC, 'trialwise_parameters')[[1]]
-# # dadm <- emc[[1]]$data[[1]]
-# # tpars[dadm$subjects==7&dadm$trials==70,]
-#
-plot_exp1(dat=dat, pp=ppC)
+ppU <- predict(emc, n_cores=25, n_post=25, conditional_on_data=FALSE, return_trialwise_parameters=TRUE)
+plot_exp1(dat=get_data(emc), pp=ppU[is.finite(ppU$rt),])
 ```
 
 
-# Section on factors on parameters
+<!-- # Softmax -->
+<!-- ```{r softmax} -->
+<!-- make_RL_softmax_map <- function(dadm, cov_names) { -->
+<!--   dadm$lS <- NA -->
+<!--   dadm[dadm$lR=='left', 'lS'] <- dadm[dadm$lR=='left', 's_left'] -->
+<!--   dadm[dadm$lR=='right', 'lS'] <- dadm[dadm$lR=='right', 's_right'] -->
+
+<!--   # Return 1 if the column name matches the accumulator's latent stimulus -->
+<!--   # and 0 otherwise -->
+<!--   map <- sapply(cov_names, function(col) ifelse(dadm$lS == col, 1, 0)) -->
+<!--   map -->
+<!-- } -->
+
+<!-- #head(make_RL_softmax_map(emc[[1]]$data[[1]], all_symbols)) -->
+
+<!-- # Combine with trend and design -->
+<!-- trend <- make_trend(par_names='x', -->
+<!--                     cov_names=list(all_symbols), -->
+<!--                     kernels='delta', -->
+<!--                     bases='lin', -->
+<!--                     phase='posttransform', -->
+<!--                     maps = list(make_RL_softmax_map)) -->
+
+<!-- design_softmax <- design(model=softmax, -->
+<!--                      data=dat, -->
+<!--                      functions=make_covariate_columns, -->
+<!--                      matchfun=function(d) d$S==d$lR, -->
+<!--                      formula=list(beta~1), -->
+<!--                      trend=trend, -->
+<!--                      constants=c('x.q0'=0, 'x.w_map1'=1), -->
+<!--                      report_p_vector = FALSE) -->
+
+<!-- emc <- make_emc(dat, design_softmax) -->
+<!-- emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp1_subset_softmax.RData') -->
+
+<!-- load('./samples/exp1_subset_softmax.RData') -->
+<!-- ppC <- predict(emc, n_cores=50) -->
+<!-- plot_exp1(dat=dat, pp=ppC) -->
+<!-- ``` -->
+
+# Example 1: Factors on parameters. The speed-accuracy trade-off
+Many research questions ask which cognitive processes are affected by a manipulation. A classsic example in the decision-making literature are manipulations intended to affect how people adjust to varying demands of speed and accuracy. This section reproduces the results from experiment 2 of [@miletic2021]. In this experiment, participants performed an instrumental learning task. Prior to each trial, they were instructed to emphasise either response speed or response accuracy. The analyses then fit an RL-ARD to test whether this cue-based manipulation affected response thresholds and/or response urgency. Here, we first fit a model where both parameters vary with cue:
+
+```{r sat_load_data}
+# Load and format the data
+load('./data/data_exp3.RData')
+dat <- dat[!dat$excl,]
+dat <- dat[!is.na(dat$rt),]
+dat$subjects <- as.factor(dat$pp)
+dat$R <- factor(dat$choice_direction, levels=c(0, 1), labels=c('left', 'right'))
+dat$S <- factor(ifelse(dat$p_win_left>dat$p_win_right, 'left', 'right'),
+                levels=c('left', 'right'))
+dat$reward <- dat$outcome
+dat$s_left <- paste0('s_', dat$stimulus_symbol_left)
+dat$s_right <- paste0('s_', dat$stimulus_symbol_right)
+dat$p_left <- dat$p_win_left
+dat$p_right <- dat$p_win_right
+dat$cue <- as.factor(dat$cue)
+# keep track of how often a stimulus pair has been shown, within each block & participant
+dat$pair <- paste(pmin(dat$s_left, dat$s_right),
+                   pmax(dat$s_left, dat$s_right),
+                 sep = "_")
+dat$pair_count <- as.numeric(ave(dat$pair, dat$subjects, dat$block_nr, dat$pair,
+                            FUN = seq_along))
+dat$trial_bin <- as.numeric(cut(dat$pair_count, 10))
+dat <- dat[,c('subjects', 'S', 'R', 'rt', 'reward', 's_left', 's_right', 'p_left', 'p_right', 'cue', 'trial_bin')]
+head(dat)
+
+all_symbols <- unique(c(dat$s_left, dat$s_right))
+make_covariate_columns <- setNames(lapply(all_symbols,
+                                          covariate_column_generator), all_symbols)
+
+trend <- make_trend(par_names='v',
+                    cov_names=list(all_symbols),
+                    kernels='delta',
+                    bases='lin',
+                    phase='posttransform',
+                    maps = list('d'=make_RL_ARD_difference,
+                                's'=make_RL_ARD_sum))
+trend$v$feedback_fun <- list('reward'=feedback_generator)
+
+ADmat <- matrix(c(1, -1), ncol=1, dimnames=list(NULL, c('a-s')))
+design_RDM <- design(model=RDM,
+                     data=dat,
+                     functions=make_covariate_columns,
+                     matchfun=function(d) d$S==d$lR,
+                     contrasts=list(cue=ADmat),
+                     formula=list(B ~ cue, v ~ cue, t0 ~ 1),
+                     trend=trend,
+                     constants=c('v.q0'=0),
+                     report_p_vector=TRUE)
+
+emc <- make_emc(dat, design_RDM)
+```
+
+```{r rlsat_fit, eval=TRUE}
+emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp3_sat_rlard.RData')
+```
+
+## To do: plotting of results, split by SAT
+
+```{r }
+load('./samples/exp3_sat_rlard.RData')
+pp <- predict(emc, n_cores=50, conditional_on_data=FALSE, return_trialwise_parameters=TRUE)
+
+dat <- get_data(emc)
+par(mfrow=c(2,3))
+plot_exp3(dat=dat[dat$cue=='ACC',], pp=pp[pp$cue=='ACC'&is.finite(pp$rt),], do.par=FALSE)
+
+plot_exp3(dat=dat[dat$cue=='SPD',], pp=pp[pp$cue=='SPD'&is.finite(pp$rt),], do.par=FALSE)
+
+```
+
+<!-- We can compare the model above with a model that allows only the threshold to vary with cues: -->
+
+<!-- ```{r sat_model2} -->
+<!-- design_RDM2 <- design(model=RDM, -->
+<!--                      data=dat, -->
+<!--                      functions=make_covariate_columns, -->
+<!--                      matchfun=function(d) d$S==d$lR, -->
+<!--                      contrasts=list(cue=ADmat), -->
+<!--                      formula=list(B ~ cue, v ~ 1, t0 ~ 1), -->
+<!--                      trend=trend, -->
+<!--                      constants=c('v.q0'=0), -->
+<!--                      report_p_vector = TRUE) -->
+
+<!-- emc <- make_emc(dat, design_RDM) -->
+<!-- emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp3_sat_rlard_model2.RData') -->
+
+<!-- ## plot by SAT condition, get BayesFactors -->
+<!-- ``` -->
+
+<!-- ```{r sat_model_comparison} -->
+<!-- emc1 <- EMC2:::loadRData('./samples/exp3_sat_rlard.RData') -->
+<!-- emc2 <- EMC2:::loadRData('./samples/exp3_sat_rlard_model2.RData') -->
+
+<!-- compare(sList=list(emc1=emc1, emc2=emc2)) -->
+<!-- # which demonstrates that the full model wins, but by margins that vary between model comparison metrics. -->
+<!-- ``` -->
+
+<!-- # Example 2: Learning, fast and slow -->
+<!-- So far, we have focused on simple delta rules. While powerful, the delta rule cannot account for all phenomena. EMC2 implements a variety of different learning rules, and in this section and next, we illustrate two of these. -->
+
+<!-- Cognitive flexibility can be assessed using a variety of methods, one of which is the reversal learning paradigm. In this task, participants learn associations between stimulus symbols and reward probabilities; however, at some point during the experimental block, these reward contingencies change. Typically, a symbol that previously had a high probability of being rewarded subsequently acquires a low probability, and vice versa. A key measure of interest is how quickly participants adjust their behavior following this reversal. -->
+
+<!-- [@miletic2021] employ such a paradigm and show that the delta rule struggles to account for the speed with which participants adapt to changes in contingencies. One proposed explanation is that participants track reward probabilities on multiple time scales simultaneously: one process estimates long-term reward averages, while another is sensitive to rapid, short-term fluctuations. This dual-timescale representation enables change detection: divergence between the two estimates may signal a shift in the environment, in which case the faster process may provide a more accurate guide for behavior. Formally: -->
+
+<!-- $$ -->
+<!-- \begin{aligned} -->
+<!-- Q_{\text{fast},t+1} &= Q_{\text{fast},t} + \alpha_{\text{fast}}\,(reward_t - Q_{\text{fast},t}) \\ -->
+<!-- Q_{\text{slow},t+1} &= Q_{\text{slow},t} + \alpha_{\text{slow}}\,(reward_t - Q_{\text{slow},t}) \\ -->
+<!-- Q_t &= -->
+<!-- \begin{cases} -->
+<!-- Q_{\text{fast},t} & \text{if } | Q_{\text{fast},t} - Q_{\text{slow},t}| > \delta \\ -->
+<!-- Q_{\text{slow},t} & \text{otherwise} -->
+<!-- \end{cases} -->
+<!-- \end{aligned} -->
+<!-- $$ -->
+<!-- The standard learning rule has two free parameters: An initial Q-value and a learning rate. The two-kernel learning rule adds a second learning rate, and a threshold parameter that signifies the minimal deviance needed between the two Q-values before the Q-value resulting from the fast learning rate is used. In EMC2, the effective parameters are the fast learning rate and which proportion $p \in [0,1]$ of the fast rate is the slow rate, such that $\alpha_{slow} = \alpha_{fast}*p$ -->
+
+<!-- ```{r reversal_twokernel} -->
+<!-- # Load and format the data -->
+<!-- load('./data/data_exp2.RData') -->
+<!-- dat <- dat[!dat$excl,] -->
+<!-- dat <- dat[!is.na(dat$rt),] -->
+<!-- dat$subjects <- as.factor(dat$pp) -->
+<!-- dat$R <- factor(dat$choice_direction, levels=c('left', 'right')) -->
+<!-- dat$S <- factor(ifelse(dat$p_win_left>dat$p_win_right, 'left', 'right'), -->
+<!--                 levels=c('left', 'right')) -->
+<!-- dat$s_left <- paste0('s_', dat$stim_left) -->
+<!-- dat$s_right <- paste0('s_', dat$stim_right) -->
+<!-- dat$p_left <- dat$p_win_left -->
+<!-- dat$p_right <- dat$p_win_right -->
+<!-- dat <- dat[,c('subjects', 'S', 'R', 'rt', 'reward', 's_left', 's_right', 'p_left', 'p_right', 'trialNreversal')] -->
+<!-- ## probably needs some fiddling to get "hasReversed" -->
+<!-- head(dat) -->
+
+<!-- all_symbols <- unique(c(dat$s_left, dat$s_right)) -->
+<!-- make_covariate_columns <- setNames(lapply(all_symbols, -->
+<!--                                           covariate_column_generator), all_symbols) -->
+
+<!-- # function to generate 'rewards' -->
+<!-- feedback_generator <- function(d) { -->
+<!--   data <- d[d$lR==levels(d$lR)[1],] -->
+<!--   p_chosen <- ifelse(data$R=='left', data$p_left, data$p_right) -->
+<!--   rewards <- rbinom(nrow(data), 1, p_chosen) -->
+<!--   rep(rewards, each=nlevels(d$lR)) -->
+<!--   # alternatively, map symbol to reward probability or reward function here. -->
+<!--   # can change trialwise/subjectwise etc -->
+<!-- } -->
+
+<!-- ## Pierce-Hall --------- -->
+<!-- trend <- make_trend(par_names='v', -->
+<!--                     cov_names=list(all_symbols), -->
+<!--                     kernels='piercehall', -->
+<!--                     bases='lin', -->
+<!--                     phase='posttransform', -->
+<!--                     maps = list('d'=make_RL_ARD_difference, -->
+<!--                                 's'=make_RL_ARD_sum)) -->
+<!-- trend$v$feedback_fun <- list('reward'=feedback_generator) -->
+
+<!-- ADmat <- matrix(c(1, -1), ncol=1, dimnames=list(NULL, c('a-s'))) -->
+<!-- design_RDM <- design(model=RDM, -->
+<!--                      data=dat, -->
+<!--                      functions=make_covariate_columns, -->
+<!--                      matchfun=function(d) d$S==d$lR, -->
+<!--                      formula=list(B ~ 1, v ~ 1, t0 ~ 1), -->
+<!--                      transform = list(lower=c('v.eta'=0.01, 'v.alpha0'=0.01), -->
+<!--                                       upper=c('v.eta'=0.99, 'v.alpha0'=0.99)), -->
+<!--                      trend=trend, -->
+<!--                      constants=c('v.q0'=0), -->
+<!--                      report_p_vector = TRUE) -->
+<!-- # prior_ <- prior(design_RDM, mu_sd=c('v.dSwitch'=0.1), mu_mean=c('v.dSwitch'=qnorm(.25))) -->
+
+<!-- emc <- make_emc(dat, design_RDM) -->
+<!-- emc <- fit(emc, cores_per_chain=20, cores_for_chains=3, -->
+<!--            fileName='./samples/exp2_revl_rlard_piercehall.RData') -->
 
 
-# Section on learning rules
+
+<!-- ## Delta risk ----------- -->
+<!-- trend <- make_trend(par_names='v', -->
+<!--                     cov_names=list(all_symbols), -->
+<!--                     kernels='deltarisk', -->
+<!--                     bases='lin', -->
+<!--                     phase='posttransform', -->
+<!--                     maps = list('d'=make_RL_ARD_difference, -->
+<!--                                 's'=make_RL_ARD_sum)) -->
+<!-- trend$v$feedback_fun <- list('reward'=feedback_generator) -->
+
+<!-- ADmat <- matrix(c(1, -1), ncol=1,  -->
+<!--                 dimnames=list(NULL, c('a-s'))) -->
+<!-- design_RDM <- design(model=RDM, -->
+<!--                      data=dat, -->
+<!--                      functions=make_covariate_columns, -->
+<!--                      matchfun=function(d) d$S==d$lR, -->
+<!--                      formula=list(B ~ 1, v ~ 1, t0 ~ 1), -->
+<!--                      trend=trend, -->
+<!--                      constants=c('v.q0'=0, 'v.h0'=.25), -->
+<!--                      report_p_vector = TRUE) -->
+
+<!-- emc <- make_emc(dat, design_RDM) -->
+<!-- emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp2_revl_rlard_deltarisk.RData') -->
 
 
-# Section on counterfactual feedback
+<!-- ## Delta ------ -->
+<!-- trend <- make_trend(par_names='v', -->
+<!--                     cov_names=list(all_symbols), -->
+<!--                     kernels='delta', -->
+<!--                     bases='lin', -->
+<!--                     phase='posttransform', -->
+<!--                     maps = list('d'=make_RL_ARD_difference, -->
+<!--                                 's'=make_RL_ARD_sum)) -->
+<!-- trend$v$feedback_fun <- list('reward'=feedback_generator) -->
+
+<!-- ADmat <- matrix(c(1, -1), ncol=1,  -->
+<!--                 dimnames=list(NULL, c('a-s'))) -->
+<!-- design_RDM <- design(model=RDM, -->
+<!--                      data=dat, -->
+<!--                      functions=make_covariate_columns, -->
+<!--                      matchfun=function(d) d$S==d$lR, -->
+<!--                      formula=list(B ~ 1, v ~ 1, t0 ~ 1), -->
+<!--                      trend=trend, -->
+<!--                      constants=c('v.q0'=0), -->
+<!--                      report_p_vector = TRUE) -->
+
+<!-- emc <- make_emc(dat, design_RDM) -->
+<!-- emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp2_revl_rlard_1kernel.RData') -->
+<!-- ``` -->
 
 
-# Section on multi-alternative choice?
+<!-- ```{r reversal_modelcomparison} -->
+<!-- emc_ph <- EMC2:::loadRData('./samples/exp2_revl_rlard_piercehall.RData') -->
+<!-- emc_dr <- EMC2:::loadRData('./samples/exp2_revl_rlard_deltarisk.RData') -->
+<!-- emc_delta <- EMC2:::loadRData('./samples/exp2_revl_rlard_1kernel.RData') -->
+<!-- compare(sList=list(ph=emc_ph, dr=emc_dr, delta=emc_delta)) -->
+
+<!-- ## Fit? -->
+<!-- pp_ph <- predict(emc_ph, n_cores = 50, conditional_on_data=FALSE, return_trialwise_parameters=TRUE, kernel_output_codes=c(1,2,3)) -->
+<!-- pp_dr <- predict(emc_dr, n_cores = 50, conditional_on_data=FALSE, return_trialwise_parameters=TRUE, kernel_output_codes=c(1,2,3,4)) -->
+<!-- pp_delta <- predict(emc_delta, n_cores = 50, conditional_on_data=FALSE, return_trialwise_parameters=TRUE, kernel_output_codes=c(1,2)) -->
+
+<!-- save(pp_ph, file='./pps/exp2_revl_rlard_piercehall_pps.RData') -->
+<!-- save(pp_dr, file='./pps/exp2_revl_rlard_deltarisk_pps.RData') -->
+<!-- save(pp_delta, file='./pps/exp2_revl_rlard_delta_pps.RData') -->
+
+<!-- dat <- EMC2:::add_trials(dat) -->
+<!-- #head(pp_dr) -->
+
+<!-- pp_ph2 <- merge(pp_ph, dat[,c('subjects', 'trials', 'trialNreversal')]) -->
+<!-- pp_ph2[order(pp_ph2$postn, pp_ph2$subjects, pp_ph2$trials),] -->
+
+<!-- pp_dr2 <- merge(pp_dr, dat[,c('subjects', 'trials', 'trialNreversal')]) -->
+<!-- pp_dr2[order(pp_dr2$postn, pp_dr2$subjects, pp_dr2$trials),] -->
+
+<!-- pp_delta2 <- merge(pp_delta, dat[,c('subjects', 'trials', 'trialNreversal')]) -->
+<!-- pp_delta2[order(pp_delta2$postn, pp_delta2$subjects, pp_delta2$trials),] -->
+
+<!-- dat$trialNrelativetoreversal1 <- dat$trialNreversal -->
+<!-- pp_ph2$trialNrelativetoreversal1 <- pp_ph2$trialNreversal -->
+<!-- pp_dr2$trialNrelativetoreversal1 <- pp_dr2$trialNreversal -->
+<!-- pp_delta2$trialNrelativetoreversal1 <- pp_delta2$trialNreversal -->
+
+<!-- plot_revl(dat, pp_ph2) -->
+<!-- mtext('Pierce-Hall', side=3, outer=TRUE, font=2, line=-1) -->
+
+<!-- plot_revl(dat, pp_dr2)  -->
+<!-- mtext('Delta-risk', side=3, outer=TRUE, font=2, line=-1) -->
+
+<!-- plot_revl(dat, pp_delta2) -->
+<!-- mtext('Delta', side=3, outer=TRUE, font=2, line=-1) -->
 
 
-# Section on the two-stage task?
+<!-- get_learning_rates <- function(pp, emc, regex='.*.alpha') { -->
+<!--   tr_pars <- do.call(rbind, attr(pp, 'trialwise_parameters')) -->
+<!--   tr_pars <- tr_pars[seq(1,nrow(tr_pars),2), ]  # dadm -> data format -->
+
+<!--   # make mask -->
+<!--   mask <- matrix(NA, nrow=nrow(pp), ncol=length(make_covariate_columns)) -->
+<!--   colnames(mask) <- names(make_covariate_columns) -->
+<!--   for(i in 1:length(make_covariate_columns)) { -->
+<!--     new_colname <- names(make_covariate_columns)[i] -->
+<!--     mask[,new_colname] <- make_covariate_columns[[i]](pp) -->
+<!--   } -->
+<!--   mask <- !is.na(mask) -->
+
+<!--   cns <- colnames(tr_pars) -->
+<!--   col_idx <- grepl(regex, cns) -->
+<!--   alphas <- t(tr_pars[,col_idx])[t(mask)] -->
+<!--   alphas -->
+<!-- } -->
+
+<!-- #pes1 <- apply(tr_pars[,grepl('.*PEs', colnames(tr_pars))],1,sum,na.rm=TRUE) -->
+
+
+<!-- # get_PEs <- function(pp, emc) { -->
+<!-- #   cns <- colnames(attr(pp, 'trialwise_parameters')[[1]]) -->
+<!-- #   col_idx <- grepl('.*.PEs', cns) -->
+<!-- #   # attr(pp, 'trialwise_parameters')[[1]][,col_idx] -->
+<!-- #   tmp <- do.call(rbind, emc[[1]]$data) -->
+<!-- #   col_idx_data <- grepl('s_\\.*', colnames(tmp)) -->
+<!-- #   tmp <- tmp[,col_idx_data] -->
+<!-- #   tmp <- tmp[,3:ncol(tmp)] -->
+<!-- #   alphas <- lapply(attr(pp, 'trialwise_parameters'), function(x) x[,col_idx][!is.na(tmp)]) -->
+<!-- #   alphas <- lapply(alphas, function(x) x[seq(1,length(x),2)]) -->
+<!-- #    # alphas <- alphas[seq(1, length(alphas), 2)] -->
+<!-- #   do.call(c, alphas) -->
+<!-- # } -->
+
+<!-- dat2 <- dat -->
+<!-- # dat2$alphas <- get_learning_rates(pp_ph, emc_ph) -->
+<!-- pp_ph2 <- pp_ph -->
+<!-- pp_ph2$alpha <- get_learning_rates(pp_ph, emc_ph) -->
+<!-- pp_ph2$PE <- get_learning_rates(pp_ph, emc_ph, regex='.*.PEs') -->
+
+<!-- plot_alphas <- function(dat, pp, plot_all_RT_quantiles=TRUE,xlim=c(-30,30)) { -->
+<!--   dat$RS <- RS(dat) -->
+<!--   dat$Racc <- dat$chosen_symbol_was_correct_prereversal <- Smatch_prereversal(dat) -->
+<!--   pp$RS <- RS(pp) -->
+<!--   pp$Racc <- pp$chosen_symbol_was_correct_prereversal <- Smatch_prereversal(pp) -->
+
+<!--   ## -->
+<!--   nReversals <- sum(grepl('trialNrelativetoreversal', colnames(dat))) -->
+<!--   par(mfcol=c(2,nReversals)) -->
+<!--   for(i in 1:nReversals) { -->
+<!--     dat$trialNreversal <- dat[,paste0('trialNrelativetoreversal',i)] -->
+<!--     pp$trialNreversal <- pp[,paste0('trialNrelativetoreversal',i)] -->
+
+<!--     # aggRT <- aggregate(rt~trialNreversal,dat,quantile, c(.1, .5,.9)) -->
+<!--     # aggRTpp <- aggregate(rt~trialNreversal, aggregate(rt~trialNreversal*postn, pp, quantile, c(.1, .5, .9)), quantile, c(.025, .5,.975)) -->
+
+<!--     aggChoice <- aggregate(Racc~trialNreversal,dat,mean) -->
+<!--     aggAlphapp <- aggregate(alpha~trialNreversal, aggregate(alpha~trialNreversal*postn,pp,mean), quantile, c(0.025, .5, .975)) -->
+<!--     aggPEpp <- aggregate(PE~trialNreversal, aggregate(PE~trialNreversal*postn,pp,mean), quantile, c(0.025, .5, .975)) -->
+
+<!--     plot(aggChoice$trialNreversal, aggChoice$Racc, type='b', lwd=2, ylab='Choice = accurate prerev', xlab='Trial N (relative to reversal)',xlim=xlim, main=paste0('Red = learning rate')) -->
+<!--     polygon(c(aggAlphapp$trialNreversal, rev(aggAlphapp$trialNreversal)), -->
+<!--             c(aggAlphapp$alpha[,1], rev(aggAlphapp$alpha[,3])), col=adjustcolor(2, alpha.f=.4)) -->
+<!--     abline(v=0, lty=2) -->
+
+<!--     plot(aggChoice$trialNreversal, aggChoice$Racc, type='b', lwd=2, ylab='Choice = accurate prerev', xlab='Trial N (relative to reversal)',xlim=xlim, main=paste0('Red = PEs'), ylim=c(-.4, .8)) -->
+<!--     polygon(c(aggPEpp$trialNreversal, rev(aggPEpp$trialNreversal)), -->
+<!--             c(aggPEpp$PE[,1], rev(aggPEpp$PE[,3])), col=adjustcolor(2, alpha.f=.4)) -->
+<!--     abline(v=0, lty=2) -->
+<!--   } -->
+<!-- } -->
+<!-- pp_ph2$trialNrelativetoreversal1 <- pp_ph2$trialNreversal -->
+<!-- plot_alphas(dat, pp_ph2) -->
+
+
+<!-- plot_revl(dat, pp_ph2) -->
+<!-- ## Par rec? -->
+
+
+
+
+
+
+<!-- ``` -->
+
+
+<!-- ```{r pearce-hall shared}  -->
+<!-- ## Pearce-Hall --------- -->
+<!-- trend <- make_trend(par_names='v', -->
+<!--                     cov_names=list(all_symbols), -->
+<!--                     kernels='piercehall', -->
+<!--                     bases='lin', -->
+<!--                     phase='posttransform', -->
+<!--                     maps = list('d'=make_RL_ARD_difference, -->
+<!--                                 's'=make_RL_ARD_sum)) -->
+<!-- trend$v$feedback_fun <- list('reward'=feedback_generator) -->
+<!-- trend$v$shared_latent <- TRUE -->
+
+<!-- ADmat <- matrix(c(1, -1), ncol=1, dimnames=list(NULL, c('a-s'))) -->
+<!-- design_RDM <- design(model=RDM, -->
+<!--                      data=dat, -->
+<!--                      functions=make_covariate_columns, -->
+<!--                      matchfun=function(d) d$S==d$lR, -->
+<!--                      formula=list(B ~ 1, v ~ 1, t0 ~ 1), -->
+<!--                      transform = list(lower=c('v.eta'=0.01, 'v.alpha0'=0.01), -->
+<!--                                       upper=c('v.eta'=0.99, 'v.alpha0'=0.99)), -->
+<!--                      trend=trend, -->
+<!--                      constants=c('v.q0'=0), -->
+<!--                      report_p_vector = TRUE) -->
+<!-- # prior_ <- prior(design_RDM, mu_sd=c('v.dSwitch'=0.1), mu_mean=c('v.dSwitch'=qnorm(.25))) -->
+
+<!-- # load('./samples/exp2_revl_rlard_piercehall_shared.RData') -->
+<!-- emc <- make_emc(dat, design_RDM) -->
+<!-- emc <- fit(emc, cores_per_chain=20, cores_for_chains=3, -->
+<!--            fileName='./samples/exp2_revl_rlard_piercehall_shared.RData') -->
+<!-- ``` -->
+
+<!-- ```{r pearcehall_shared_pp} -->
+<!-- emc_ph_shared <- EMC2:::loadRData('./samples/exp2_revl_rlard_piercehall_shared.RData') -->
+
+<!-- pp_ph_shared <- predict(emc, n_post = 40, n_cores = 40, conditional_on_data=FALSE, return_trialwise_parameters=TRUE, kernel_output_codes=c(1,2,3,4)) -->
+
+<!-- save(pp_ph_shared, file='./pps/exp2_revl_rlard_piercehall_shared_pps.RData') -->
+
+
+
+<!-- dat2 <- dat -->
+<!-- # dat2$alphas <- get_learning_rates(pp_ph, emc_ph) -->
+<!-- pp_ph2 <- pp_ph_shared -->
+<!-- pp_ph2$alpha <- get_learning_rates(pp_ph_shared, emc_ph_shared) -->
+<!-- pp_ph2$PE <- get_learning_rates(pp_ph_shared, emc_ph_shared, regex='.*.PEs') -->
+
+<!-- plot_alphas <- function(dat, pp, plot_all_RT_quantiles=TRUE,xlim=c(-30,30)) { -->
+<!--   dat$RS <- RS(dat) -->
+<!--   dat$Racc <- dat$chosen_symbol_was_correct_prereversal <- Smatch_prereversal(dat) -->
+<!--   pp$RS <- RS(pp) -->
+<!--   pp$Racc <- pp$chosen_symbol_was_correct_prereversal <- Smatch_prereversal(pp) -->
+
+<!--   ## -->
+<!--   nReversals <- sum(grepl('trialNrelativetoreversal', colnames(dat))) -->
+<!--   par(mfcol=c(2,nReversals)) -->
+<!--   for(i in 1:nReversals) { -->
+<!--     dat$trialNreversal <- dat[,paste0('trialNrelativetoreversal',i)] -->
+<!--     pp$trialNreversal <- pp[,paste0('trialNrelativetoreversal',i)] -->
+
+<!--     # aggRT <- aggregate(rt~trialNreversal,dat,quantile, c(.1, .5,.9)) -->
+<!--     # aggRTpp <- aggregate(rt~trialNreversal, aggregate(rt~trialNreversal*postn, pp, quantile, c(.1, .5, .9)), quantile, c(.025, .5,.975)) -->
+
+<!--     aggChoice <- aggregate(Racc~trialNreversal,dat,mean) -->
+<!--     aggAlphapp <- aggregate(alpha~trialNreversal, aggregate(alpha~trialNreversal*postn,pp,mean), quantile, c(0.025, .5, .975)) -->
+<!--     aggPEpp <- aggregate(PE~trialNreversal, aggregate(PE~trialNreversal*postn,pp,mean), quantile, c(0.025, .5, .975)) -->
+
+<!--     plot(aggChoice$trialNreversal, aggChoice$Racc, type='b', lwd=2, ylab='Choice = accurate prerev', xlab='Trial N (relative to reversal)',xlim=xlim, main=paste0('Red = learning rate')) -->
+<!--     polygon(c(aggAlphapp$trialNreversal, rev(aggAlphapp$trialNreversal)), -->
+<!--             c(aggAlphapp$alpha[,1], rev(aggAlphapp$alpha[,3])), col=adjustcolor(2, alpha.f=.4)) -->
+<!--     abline(v=0, lty=2) -->
+
+<!--     plot(aggChoice$trialNreversal, aggChoice$Racc, type='b', lwd=2, ylab='Choice = accurate prerev', xlab='Trial N (relative to reversal)',xlim=xlim, main=paste0('Red = PEs'), ylim=c(-.4, .8)) -->
+<!--     polygon(c(aggPEpp$trialNreversal, rev(aggPEpp$trialNreversal)), -->
+<!--             c(aggPEpp$PE[,1], rev(aggPEpp$PE[,3])), col=adjustcolor(2, alpha.f=.4)) -->
+<!--     abline(v=0, lty=2) -->
+<!--   } -->
+<!-- } -->
+<!-- pp_ph2$trialNrelativetoreversal1 <- pp_ph2$trialNreversal -->
+<!-- plot_alphas(dat, pp_ph2) -->
+<!-- mtext('Pearce-Hall (shared latent)', side=3, outer=TRUE, font=2, line=-1) -->
+
+
+<!-- emc_delta <- EMC2:::loadRData('./samples/exp2_revl_rlard_1kernel.RData') -->
+<!-- compare(sList=list(ph=emc, delta=emc_delta), BayesFactor = FALSE) -->
+
+<!-- ``` -->
+
+<!-- # Section on counterfactual feedback -->
+
+
+
+<!-- # Section on multi-alternative choice? -->
+
+
+<!-- # Section on the two-stage task? -->

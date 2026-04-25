@@ -1,5 +1,5 @@
 ## RL functions
-plot_exp1 <- function(dat, pp) {
+plot_exp1 <- function(dat, pp, do.par=TRUE) {
   dat$accuracy <- dat$S==dat$R
   pp$accuracy <- pp$S==pp$R
 
@@ -14,7 +14,7 @@ plot_exp1 <- function(dat, pp) {
   # Part 1. Plot fit
   aggAccS <- aggregate(accuracy~subjects*bin, dat, mean)
   aggAccG <- aggregate(accuracy~bin, aggAccS, mean)
-
+  
   aggRTS <- aggregate(rt~subjects*bin*accuracy, dat,quantile, c(0.1,.5,.9))
   aggRTG <- aggregate(rt~bin*accuracy, aggRTS, mean)
 
@@ -22,13 +22,16 @@ plot_exp1 <- function(dat, pp) {
   ppaggAccS <- aggregate(accuracy~subjects*bin*postn, pp, mean)
   ppaggAccG <- aggregate(accuracy~bin*postn, pp, mean)
   ppaggAcc <- aggregate(accuracy~bin, ppaggAccG, quantile, c(0.025, 0.5, 0.975))
-
-  ppaggRTS <- aggregate(rt~subjects*bin*accuracy*postn, pp, quantile, c(0.1,.5,.9))
-  ppaggRTG <- aggregate(rt~bin*accuracy*postn, ppaggRTS, mean)
-  ppaggRT <- aggregate(cbind(`10%`,`50%`,`90%`)~bin*accuracy, ppaggRTG, quantile, c(0.025, 0.5, 0.975))
-
+  
+  pphasrt <- !all(is.na(pp$rt))
+  if(pphasrt) {
+    ppaggRTS <- aggregate(rt~subjects*bin*accuracy*postn, pp, quantile, c(0.1,.5,.9))
+    ppaggRTG <- aggregate(rt~bin*accuracy*postn, ppaggRTS, mean)
+    ppaggRT <- aggregate(cbind(`10%`,`50%`,`90%`)~bin*accuracy, ppaggRTG, quantile, c(0.025, 0.5, 0.975))
+  }
+  
   ## plot: 1. accuracy
-  par(mfrow=c(1,3))
+  if(do.par) par(mfrow=c(1,3))
   plot(0,0,type='n', xlim=c(1,10), ylim=c(0.4,.9), ylab='', xlab='Trial bin', main='')#, xaxt=ifelse(condition_=='SPD', 's', 'n'))
   abline(h=seq(0,1,.1), col='lightgray', lty=2)
   polygon(c(1:10, 10:1), c(ppaggAcc$accuracy[,1],rev(ppaggAcc$accuracy[,3])),col=adjustcolor(2, alpha.f=.3), border = FALSE)
@@ -36,24 +39,30 @@ plot_exp1 <- function(dat, pp) {
   points(aggAccG$bin, aggAccG$accuracy, pch=19, lwd=1.5)
 
   # 2. RT (correct)
-  plot(0,0,type='n', xlim=c(1,10), ylim=range(c(ppaggRT[,3:5],aggRTG[,3:5])), xlab='Trial bin', ylab='RT (s)', main='')#, xaxt=ifelse(condition_=='SPD', 's', 'n'))
+  if(pphasrt) ylim <- range(c(ppaggRT[,3:5],aggRTG[,3:5])) else ylim <- range(c(aggRTG[,3:5]))
+  plot(0,0,type='n', xlim=c(1,10), ylim=ylim, xlab='Trial bin', ylab='RT (s)', main='')#, xaxt=ifelse(condition_=='SPD', 's', 'n'))
   abline(h=seq(0,2,.1), col='lightgray', lty=2)
   for(quantile_ in c('10%', '50%', '90%')) {
-    polygon(c(1:10, 10:1), c(ppaggRT[ppaggRT$accuracy==1,quantile_][,'2.5%'],
-                             rev(ppaggRT[ppaggRT$accuracy==1,quantile_][,'97.5%'])),
-            col=adjustcolor(2, alpha.f=.3), border = FALSE)
+    if(pphasrt) {
+      polygon(c(1:10, 10:1), c(ppaggRT[ppaggRT$accuracy==1,quantile_][,'2.5%'],
+                               rev(ppaggRT[ppaggRT$accuracy==1,quantile_][,'97.5%'])),
+              col=adjustcolor(2, alpha.f=.3), border = FALSE)
+    }
 
     lines(aggRTG$bin[aggRTG$accuracy==1], aggRTG[aggRTG$accuracy==1, quantile_], lwd=1.5) # data
     points(aggRTG$bin[aggRTG$accuracy==1], aggRTG[aggRTG$accuracy==1, quantile_], pch=19, lwd=1.5) # data
   }
 
-  plot(0,0,type='n', xlim=c(1,10), ylim=range(c(ppaggRT[,3:5],aggRTG[,3:5])), xlab='Trial bin', ylab='RT (s)', main='')#, xaxt=ifelse(condition_=='SPD', 's', 'n'))
+  if(pphasrt) ylim <- range(c(ppaggRT[,3:5],aggRTG[,3:5])) else ylim <- range(c(aggRTG[,3:5]))
+  plot(0,0,type='n', xlim=c(1,10), ylim=ylim, xlab='Trial bin', ylab='RT (s)', main='')#, xaxt=ifelse(condition_=='SPD', 's', 'n'))
   abline(h=seq(0,2,.1), col='lightgray', lty=2)
   for(quantile_ in c('10%', '50%', '90%')) {
-    polygon(c(1:10, 10:1), c(ppaggRT[ppaggRT$accuracy==0,quantile_][,'2.5%'],
-                             rev(ppaggRT[ppaggRT$accuracy==0,quantile_][,'97.5%'])),
-            col=adjustcolor(2, alpha.f=.3), border = FALSE)
-
+    if(pphasrt) {
+      polygon(c(1:10, 10:1), c(ppaggRT[ppaggRT$accuracy==0,quantile_][,'2.5%'],
+                               rev(ppaggRT[ppaggRT$accuracy==0,quantile_][,'97.5%'])),
+              col=adjustcolor(2, alpha.f=.3), border = FALSE)
+    }
+    
     lines(aggRTG$bin[aggRTG$accuracy==0], aggRTG[aggRTG$accuracy==0, quantile_], lwd=1.5) # data
     points(aggRTG$bin[aggRTG$accuracy==0], aggRTG[aggRTG$accuracy==0, quantile_], pch=19, lwd=1.5) # data
   }
@@ -105,5 +114,80 @@ plot_revl <- function(dat, pp, plot_all_RT_quantiles=TRUE,xlim=c(-30,30)) {
       polygon(c(aggRTpp$trialNreversal, rev(aggRTpp$trialNreversal)),
               c(aggRTpp$`90%`[,1], rev(aggRTpp$`90%`[,3])), col=adjustcolor(2, alpha.f=.4))
     }
+  }
+}
+
+
+## RL functions
+plot_exp3 <- function(dat, pp, do.par=TRUE) {
+  dat$accuracy <- dat$S==dat$R
+  pp$accuracy <- pp$S==pp$R
+  
+  ## Aggregations for Exp 1
+  if(!'trials' %in% colnames(dat)) dat <- EMC2:::add_trials(dat)
+  
+  # dat$bin <- dat$trialBin #as.numeric(cut(dat$trials, breaks=10))
+  # pp$bin <- pp$trialBin #as.numeric(cut(pp$trials, breaks=10))
+  if('trial_bin' %in% names(dat)) {
+    dat$bin <- dat$trial_bin
+    pp$bin <- pp$trial_bin
+  }
+  # dat$bin <- as.numeric(cut(dat$trials, breaks=10))
+  # pp$bin <- as.numeric(cut(pp$trials, breaks=10))
+  
+  # Part 1. Plot fit
+  aggAccS <- aggregate(accuracy~subjects*bin, dat, mean)
+  aggAccG <- aggregate(accuracy~bin, aggAccS, mean)
+  
+  aggRTS <- aggregate(rt~subjects*bin*accuracy, dat,quantile, c(0.1,.5,.9))
+  aggRTG <- aggregate(rt~bin*accuracy, aggRTS, mean)
+  
+  # pp
+  ppaggAccS <- aggregate(accuracy~subjects*bin*postn, pp, mean)
+  ppaggAccG <- aggregate(accuracy~bin*postn, pp, mean)
+  ppaggAcc <- aggregate(accuracy~bin, ppaggAccG, quantile, c(0.025, 0.5, 0.975))
+  
+  pphasrt <- !all(is.na(pp$rt))
+  if(pphasrt) {
+    ppaggRTS <- aggregate(rt~subjects*bin*accuracy*postn, pp, quantile, c(0.1,.5,.9))
+    ppaggRTG <- aggregate(rt~bin*accuracy*postn, ppaggRTS, mean)
+    ppaggRT <- aggregate(cbind(`10%`,`50%`,`90%`)~bin*accuracy, ppaggRTG, quantile, c(0.025, 0.5, 0.975))
+  }
+  
+  ## plot: 1. accuracy
+  if(do.par) par(mfrow=c(1,3))
+  plot(0,0,type='n', xlim=c(1,10), ylim=c(0.4,.9), ylab='', xlab='Trial bin', main='')#, xaxt=ifelse(condition_=='SPD', 's', 'n'))
+  abline(h=seq(0,1,.1), col='lightgray', lty=2)
+  polygon(c(1:10, 10:1), c(ppaggAcc$accuracy[,1],rev(ppaggAcc$accuracy[,3])),col=adjustcolor(2, alpha.f=.3), border = FALSE)
+  lines(aggAccG$bin, aggAccG$accuracy, lwd=1.5)
+  points(aggAccG$bin, aggAccG$accuracy, pch=19, lwd=1.5)
+  
+  # 2. RT (correct)
+  if(pphasrt) ylim <- range(c(ppaggRT[,3:5],aggRTG[,3:5])) else ylim <- range(c(aggRTG[,3:5]))
+  plot(0,0,type='n', xlim=c(1,10), ylim=ylim, xlab='Trial bin', ylab='RT (s)', main='')#, xaxt=ifelse(condition_=='SPD', 's', 'n'))
+  abline(h=seq(0,2,.1), col='lightgray', lty=2)
+  for(quantile_ in c('10%', '50%', '90%')) {
+    if(pphasrt) {
+      polygon(c(1:10, 10:1), c(ppaggRT[ppaggRT$accuracy==1,quantile_][,'2.5%'],
+                               rev(ppaggRT[ppaggRT$accuracy==1,quantile_][,'97.5%'])),
+              col=adjustcolor(2, alpha.f=.3), border = FALSE)
+    }
+    
+    lines(aggRTG$bin[aggRTG$accuracy==1], aggRTG[aggRTG$accuracy==1, quantile_], lwd=1.5) # data
+    points(aggRTG$bin[aggRTG$accuracy==1], aggRTG[aggRTG$accuracy==1, quantile_], pch=19, lwd=1.5) # data
+  }
+  
+  if(pphasrt) ylim <- range(c(ppaggRT[,3:5],aggRTG[,3:5])) else ylim <- range(c(aggRTG[,3:5]))
+  plot(0,0,type='n', xlim=c(1,10), ylim=ylim, xlab='Trial bin', ylab='RT (s)', main='')#, xaxt=ifelse(condition_=='SPD', 's', 'n'))
+  abline(h=seq(0,2,.1), col='lightgray', lty=2)
+  for(quantile_ in c('10%', '50%', '90%')) {
+    if(pphasrt) {
+      polygon(c(1:10, 10:1), c(ppaggRT[ppaggRT$accuracy==0,quantile_][,'2.5%'],
+                               rev(ppaggRT[ppaggRT$accuracy==0,quantile_][,'97.5%'])),
+              col=adjustcolor(2, alpha.f=.3), border = FALSE)
+    }
+    
+    lines(aggRTG$bin[aggRTG$accuracy==0], aggRTG[aggRTG$accuracy==0, quantile_], lwd=1.5) # data
+    points(aggRTG$bin[aggRTG$accuracy==0], aggRTG[aggRTG$accuracy==0, quantile_], pch=19, lwd=1.5) # data
   }
 }
