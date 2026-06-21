@@ -123,7 +123,7 @@ right   1    s_t     s_T
 \end{lstlisting}
 };
 
-\node[box, text width=3.5cm, below=2.5cm of data_tab] (covmap) {Covariate map};
+\node[box, text width=3.5cm, below=2.5cm of data_tab] (covmap) {Covariate coding};
 \node[box, text width=3.5cm, right=1.0cm of covmap] (deltarule) {Delta rule};
 \node[vblock, text width=3.5cm, below=0.25cm of covmap] (covmap_tab) {
 \begin{lstlisting}[basicstyle=\footnotesize\ttfamily]
@@ -186,14 +186,14 @@ s_D s_e s_T s_t
 %\draw[->] (data) -- (dadm);
 \draw[->] (data_tab) -- node[midway, sloped, above, font=\footnotesize] {design(\textbf{functions}, ...)} (dadm_tab);
 \draw[->] (dadm_tab) -- (deltarule);
-\draw[->] (dadm_tab) -- node[midway, sloped, above, font=\footnotesize] {make\_trend(\textbf{map}, ...)} (covmap);
+\draw[->] (dadm_tab) -- node[midway, sloped, above, font=\footnotesize] {make\_base(\textbf{coding}, ...)} (covmap);
 \draw[->] (covmap_tab) -- node[midway, sloped, above, font=\footnotesize] {$\times$} (deltarule_tab);
 \draw[->] (deltarule_tab) -- node[midway, sloped, above, font=\footnotesize] {$\times$} (weight_tab);
 \draw[->] (weight_tab.east) -- node[midway, sloped, above, font=\footnotesize] {row sums} (rates_tab);
 
 
 \end{tikzpicture}
-\caption{Overview of steps. Users need to specify functions in two places. First, a set of functions that can be applied to the \texttt{dadm} and generates the covariate columns (here, \texttt{s\_D, s\_e, s\_T, s\_t}). These functions are supplied to the \texttt{design()} function of \texttt{EMC2}. Second, a set of functions that can be applied to the \texttt{dadm} and generates one (or optionally more) covariate map(s). These are supplied to \texttt{make\_trend()}. The trial-wise drift rate is the rowsum of the updated covariate multiplied by the covariate map(s) and the weight.}
+\caption{Overview of steps. Users need to specify functions in two places. First, a set of functions that can be applied to the \texttt{dadm} and generates the covariate columns (here, \texttt{s\_D, s\_e, s\_T, s\_t}). These functions are supplied to the \texttt{design()} function of \texttt{EMC2}. Second, a set of functions that can be applied to the \texttt{dadm} and generates one covariate coding. These are supplied to \texttt{make\_base()}. The trial-wise drift rate is the rowsum of the updated covariate multiplied by the covariate coding and the weight.}
 \end{figure}
 
 
@@ -312,11 +312,10 @@ Handling trialwise covariates works through `trend` objects in *EMC2*. In this o
 Now that we have prepared the data-augmented design matrix (`dadm`) (so that it contains all covariates as columns), we can now specify a `trend` object. The kernel that we want to apply is the `delta` rule, and it should inform drift rates `v` linearly, so we use a `lin`ear `base`.
 
 ```{r delta_rule}
-trend <- make_trend(par_names='v',
-                    cov_names=list(all_symbols),
-                    kernels='delta',
-                    bases='lin',
-                    phase='posttransform')
+delta_kernel <- make_kernel(cov_names=all_symbols, type='delta')
+lin_base <- make_base(target_parameter = 'v', type='lin', kernel=delta_kernel,
+                      phase='posttransform')
+trend <- make_trend(lin_base)
 
 design_RDM <- design(model=RDM,
                      data=dat,
@@ -335,29 +334,34 @@ head(cbind(emc[[1]]$data[[1]][,all_symbols], apply_kernel(kernel_pars, emc = emc
 
 
 ### 3. Define the trial-wise mapping between covariates and each accumulator
-By default, *EMC2* applies the base to all updated covariates (i.e., it multiplies the base with the rowsums of the updated kernel). However, on each trial, only two stimuli were shown, so only they should influence the respective drift rates. Therefore, we need to create a mapping between covariates and accumulators. Such a map is a matrix specifying the weight of each covariate for each drift rate - most will be 0. The simplest type of map corresponds to an RL-RD, which just maps 1 covariate to 1 accumulator in each row:
+By default, *EMC2* applies the base to all updated covariates (i.e., it multiplies the base with the rowsums of the updated kernel). However, on each trial, only two stimuli were shown, so only they should influence the respective drift rates. Therefore, we need to create a mapping between covariates and accumulators. Such a coding is a matrix specifying the weight of each covariate for each drift rate - most will be 0. The simplest type of coding corresponds to an RL-RD, which just maps 1 covariate to 1 accumulator in each row:
 
 ```{r rlrd_make_mapping}
-make_RL_RD_map <- function(dadm, cov_names) {
+make_RL_RD_coding <- function(dadm, cov_names) {
   dadm$lS <- NA
   dadm[dadm$lR=='left', 'lS'] <- dadm[dadm$lR=='left', 's_left']
   dadm[dadm$lR=='right', 'lS'] <- dadm[dadm$lR=='right', 's_right']
 
   # Return 1 if the column name matches the accumulator's latent stimulus
   # and 0 otherwise
-  map <- sapply(cov_names, function(col) ifelse(dadm$lS == col, 1, 0))
-  map
+  coding <- sapply(cov_names, function(col) ifelse(dadm$lS == col, 1, 0))
+  coding
 }
 
-head(make_RL_RD_map(emc[[1]]$data[[1]], all_symbols))
+head(make_RL_RD_coding(emc[[1]]$data[[1]], all_symbols))
 
 # Combine with trend and design
-trend <- make_trend(par_names='v',
-                    cov_names=list(all_symbols),
-                    kernels='delta',
-                    bases='lin',
-                    phase='posttransform',
-                    maps = list(make_RL_RD_map))
+delta_kernel <- make_kernel(cov_names=all_symbols, type='delta')
+lin_base <- make_base(target_parameter = 'v', type='lin', kernel=delta_kernel,
+                      phase='posttransform', coding=list(w=make_RL_RD_coding))
+trend <- make_trend(lin_base)
+
+# trend <- make_trend(par_names='v',
+#                     cov_names=list(all_symbols),
+#                     kernels='delta',
+#                     bases='lin',
+#                     phase='posttransform',
+#                     coding = list(make_RL_RD_coding))
 
 design_RDM <- design(model=RDM,
                      data=dat,
@@ -388,7 +392,7 @@ emc <- make_emc(dat, design_RDM)
 # ## example 2: In dadm space
 # dadm <- tmp#[c()]
 # updated_covs <- tmp2
-# tmp3 <- attr(emc[[1]]$data[[1]], 'covariate_maps')[[1]]
+# tmp3 <- attr(emc[[1]]$data[[1]], 'covariate_coding')[[1]]
 # tmp3[rowidx1,]
 # 
 # dadm[1:12,c('trials', 'R', 'lR',  c('s_D', 's_e', 's_T', 's_t'))]
@@ -431,7 +435,7 @@ feedback_generator <- function(d) {
     # alternatively, map symbol to reward probability or reward function here.
     # can change trialwise/subjectwise etc
 }
-trend$v$feedback_fun <- list('reward'=feedback_generator)
+trend$kernels$k1$feedback <- list('reward'=feedback_generator)
 
 design_RDM <- design(model=RDM,
                      data=dat,
@@ -443,64 +447,71 @@ design_RDM <- design(model=RDM,
                      report_p_vector = FALSE)
 
 emc <- make_emc(dat, design_RDM)
-emc <- fit(emc, cores_per_chain=15, fileName='./samples/exp1_subset_rlrd.RData')
+emc <- fit(emc, cores_per_chain=5, fileName='./samples/exp1_rlrd.RData')
 ```
 
 ```{r }
-load('./samples/exp1_subset_rlrd.RData')
-ppU <- predict(emc, n_cores=30, conditional_on_data=FALSE)
+load('./samples/exp1_rlrd.RData')
+ppU <- predict(emc, n_cores=25, conditional_on_data=FALSE, return_trialwise_parameters=TRUE)
 plot_exp1(dat=dat, pp=ppU[is.finite(ppU$rt),])
 ```
 
 ## Example: RL-DDM
-The above illustrates the basics, and with these, it is straightforward to construct other RL-EAMs. In most cases, it is a matter of changing the mapping function, and potentially the EAM itself. For example, a popular choice is the RL-DDM, which is the following:
+The above illustrates the basics, and with these, it is straightforward to construct other RL-EAMs. In most cases, it is a matter of changing the coding function, and potentially the EAM itself. For example, a popular choice is the RL-DDM, which is the following:
 
 ```{r make_rlddm}
-make_RL_DDM_map <- function(dadm, cov_names) {
+make_RL_DDM_coding <- function(dadm, cov_names) {
   # Here, we simply find the symbol on the left and right,
   # and subtract one from the other
-  map_left <- sapply(cov_names, function(col) ifelse(dadm$s_left == col, 1, 0))
-  map_right <- sapply(cov_names, function(col) ifelse(dadm$s_right == col, 1, 0))
-  map <- map_left-map_right
-  map
+  coding_left <- sapply(cov_names, function(col) ifelse(dadm$s_left == col, 1, 0))
+  coding_right <- sapply(cov_names, function(col) ifelse(dadm$s_right == col, 1, 0))
+  coding <- coding_right-coding_left
+  coding
+}
+
+feedback_generator_ddm <- function(d) {
+    p_chosen <- ifelse(d$R=='left', d$p_left, d$p_right)
+    rewards <- rbinom(nrow(d), 1, p_chosen)
+    if('lR' %in% names(d)) {
+      rewards <- rep(rewards, each=nlevels(d$lR))
+    }
+    rewards
 }
 
 # Combine with trend and design
-trend <- make_trend(par_names='v',
-                    cov_names=list(all_symbols),
-                    kernels='delta',
-                    bases='lin',
-                    phase='posttransform',
-                    maps = list(make_RL_DDM_map))
-trend$v$feedback_fun <- list('reward'=feedback_generator)
+delta_kernel_DDM <- make_kernel(cov_names=all_symbols, type='delta', at=NULL)
+lin_base_DDM <- make_base(target_parameter = 'v', type='lin', kernel=delta_kernel,
+                           phase='posttransform', coding=list(w=make_RL_DDM_coding))
+trend_DDM <- make_trend(lin_base_DDM)
+trend_DDM$kernels$k1$feedback <- list('reward'=feedback_generator_ddm)
 
 design_DDM <- design(model=DDM,
                      data=dat,
                      functions=make_covariate_columns,
                      matchfun=function(d) d$S==d$lR,
                      formula=list(a ~ 1, v ~ 1, t0 ~ 1),
-                     trend=trend,
+                     trend=trend_DDM,
                      constants=c('v.q0'=0),
                      report_p_vector = FALSE)
 
 emc <- make_emc(dat, design_DDM)
-head(attr(emc[[1]]$data[[1]], 'covariate_maps')[[1]])
+head(attr(emc[[1]]$data[[1]], 'covariate_coding')[[1]])
 ```
 ```{r fit_rlddm, eval=TRUE}
-emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp1_subset_rlddm.RData')
+emc <- fit(emc, cores_per_chain=5, fileName='./samples/exp1_rlddm.RData')
 ```
 
 However, the RL-DDM does not fit the response time distributions very well:
 
 ```{r pp_rlddm}
 ## plot here
-load('./samples/exp1_subset_rlddm.RData')
+load('./samples/exp1_rlddm.RData')
 ppU <- predict(emc, n_cores=50)
 plot_exp1(dat=dat, pp=ppU[is.finite(ppU$rt),])
 ```
 
 ## Example: RL-ARD
-An alternative option is the RL-ARD, which combines a difference and a sum map in a race architecture:
+An alternative option is the RL-ARD, which combines a difference and a sum coding in a race architecture:
 
 ```{r make_rlard}
 make_RL_ARD_difference <- function(dadm, cov_names) {
@@ -515,9 +526,9 @@ make_RL_ARD_difference <- function(dadm, cov_names) {
   # Return 1 if the column name matches the accumulator's latent stimulus
   # Return -1 if the column name matches the *other* accumulator's latent stimulus
   # and 0 otherwise
-  maplS <- sapply(cov_names, function(col) ifelse(dadm$lS == col, 1, 0))
-  maplSother <- sapply(cov_names, function(col) ifelse(dadm$lSother == col, 1, 0))
-  maplS-maplSother
+  codinglS <- sapply(cov_names, function(col) ifelse(dadm$lS == col, 1, 0))
+  codinglSother <- sapply(cov_names, function(col) ifelse(dadm$lSother == col, 1, 0))
+  codinglS-codinglSother
 }
 
 make_RL_ARD_sum <- function(dadm, cov_names) {
@@ -532,20 +543,18 @@ make_RL_ARD_sum <- function(dadm, cov_names) {
   # Return 1 if the column name matches the accumulator's latent stimulus
   # Return 1 if the column name matches the *other* accumulator's latent stimulus
   # and 0 otherwise
-  maplS <- sapply(cov_names, function(col) ifelse(dadm$lS == col, 1, 0))
-  maplSother <- sapply(cov_names, function(col) ifelse(dadm$lSother == col, 1, 0))
-  maplS+maplSother
+  codinglS <- sapply(cov_names, function(col) ifelse(dadm$lS == col, 1, 0))
+  codinglSother <- sapply(cov_names, function(col) ifelse(dadm$lSother == col, 1, 0))
+  codinglS+codinglSother
 }
 
 # Combine with trend and design
-trend <- make_trend(par_names='v',
-                    cov_names=list(all_symbols),
-                    kernels='delta',
-                    bases='lin',
-                    phase='posttransform',
-                    maps = list('d'=make_RL_ARD_difference,
-                                's'=make_RL_ARD_sum))
-trend$v$feedback_fun <- list('reward'=feedback_generator)
+base1 <- make_base('v', 'lin', kernel=delta_kernel, 
+                   coding=list('d'=make_RL_ARD_difference), phase='posttransform')
+base2 <- make_base('v', 'lin', kernel=delta_kernel,
+                   coding=list('s'=make_RL_ARD_sum), phase='posttransform')
+trend <- make_trend(base1, base2)
+trend$kernels$k1$feedback <- list('reward'=feedback_generator)
 
 design_RDM <- design(model=RDM,
                      data=dat,
@@ -560,12 +569,12 @@ emc <- make_emc(dat, design_RDM)
 ```
 
 ```{r fit_rlard, eval=TRUE}
-emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp1_subset_rlard.RData')
+emc <- fit(emc, cores_per_chain=5, fileName='./samples/exp1_rlard.RData')
 ```
 
 ```{r pp_rlard}
-load('./samples/exp1_subset_rlard.RData')
-ppU <- predict(emc, n_cores=25, n_post=25, conditional_on_data=FALSE, return_trialwise_parameters=TRUE)
+load('./samples/exp1_rlard.RData')
+ppU <- predict(emc, n_cores=15, return_trialwise_parameters=TRUE)
 plot_exp1(dat=get_data(emc), pp=ppU[is.finite(ppU$rt),])
 ```
 
@@ -642,14 +651,13 @@ all_symbols <- unique(c(dat$s_left, dat$s_right))
 make_covariate_columns <- setNames(lapply(all_symbols,
                                           covariate_column_generator), all_symbols)
 
-trend <- make_trend(par_names='v',
-                    cov_names=list(all_symbols),
-                    kernels='delta',
-                    bases='lin',
-                    phase='posttransform',
-                    maps = list('d'=make_RL_ARD_difference,
-                                's'=make_RL_ARD_sum))
-trend$v$feedback_fun <- list('reward'=feedback_generator)
+kernel <- make_kernel(all_symbols, 'delta')
+base1 <- make_base('v', 'lin', kernel=kernel, coding=list('d'=make_RL_ARD_difference),
+                   phase='posttransform')
+base2 <- make_base('v', 'lin', kernel=kernel, coding=list('d'=make_RL_ARD_sum),
+                   phase='posttransform')
+trend <- make_trend(base1, base2)
+trend$kernels$k1$feedback <- list('reward'=feedback_generator)
 
 ADmat <- matrix(c(1, -1), ncol=1, dimnames=list(NULL, c('a-s')))
 design_RDM <- design(model=RDM,
@@ -666,14 +674,14 @@ emc <- make_emc(dat, design_RDM)
 ```
 
 ```{r rlsat_fit, eval=TRUE}
-emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp3_sat_rlard.RData')
+emc <- fit(emc, cores_per_chain=5, fileName='./samples/exp3_sat_rlard.RData')
 ```
 
 ## To do: plotting of results, split by SAT
 
 ```{r }
 load('./samples/exp3_sat_rlard.RData')
-pp <- predict(emc, n_cores=50, conditional_on_data=FALSE, return_trialwise_parameters=TRUE)
+pp <- predict(emc, n_cores=15, return_trialwise_parameters=TRUE)
 
 dat <- get_data(emc)
 par(mfrow=c(2,3))
@@ -683,32 +691,126 @@ plot_exp3(dat=dat[dat$cue=='SPD',], pp=pp[pp$cue=='SPD'&is.finite(pp$rt),], do.p
 
 ```
 
-<!-- We can compare the model above with a model that allows only the threshold to vary with cues: -->
+We can compare the model above with a model that allows only the threshold to vary with cues:
 
-<!-- ```{r sat_model2} -->
-<!-- design_RDM2 <- design(model=RDM, -->
-<!--                      data=dat, -->
-<!--                      functions=make_covariate_columns, -->
-<!--                      matchfun=function(d) d$S==d$lR, -->
-<!--                      contrasts=list(cue=ADmat), -->
-<!--                      formula=list(B ~ cue, v ~ 1, t0 ~ 1), -->
-<!--                      trend=trend, -->
-<!--                      constants=c('v.q0'=0), -->
-<!--                      report_p_vector = TRUE) -->
+```{r sat_model2}
+design_RDM2 <- design(model=RDM,
+                     data=dat,
+                     functions=make_covariate_columns,
+                     matchfun=function(d) d$S==d$lR,
+                     contrasts=list(cue=ADmat),
+                     formula=list(B ~ cue, v ~ 1, t0 ~ 1),
+                     trend=trend,
+                     constants=c('v.q0'=0),
+                     report_p_vector = TRUE)
 
-<!-- emc <- make_emc(dat, design_RDM) -->
-<!-- emc <- fit(emc, cores_per_chain=20, fileName='./samples/exp3_sat_rlard_model2.RData') -->
+emc <- make_emc(dat, design_RDM)
+emc <- fit(emc, cores_per_chain=5, fileName='./samples/exp3_sat_rlard_model2.RData')
 
-<!-- ## plot by SAT condition, get BayesFactors -->
-<!-- ``` -->
+## plot by SAT condition, get BayesFactors
+```
 
-<!-- ```{r sat_model_comparison} -->
-<!-- emc1 <- EMC2:::loadRData('./samples/exp3_sat_rlard.RData') -->
-<!-- emc2 <- EMC2:::loadRData('./samples/exp3_sat_rlard_model2.RData') -->
+```{r sat_model_comparison}
+emc1 <- EMC2:::loadRData('./samples/exp3_sat_rlard.RData')
+emc2 <- EMC2:::loadRData('./samples/exp3_sat_rlard_model2.RData')
 
-<!-- compare(sList=list(emc1=emc1, emc2=emc2)) -->
-<!-- # which demonstrates that the full model wins, but by margins that vary between model comparison metrics. -->
-<!-- ``` -->
+compare(sList=list(emc1=emc1, emc2=emc2))
+# which demonstrates that the threshold-only model wins
+```
+
+
+# Example 2: Positive and negative learning rates
+The standard delta rule assumes people adjust Q-values equally when reward is higher than expected compared to when it is lower than expected. However, several research papers suggest that people show an optimism bias: Positive prediction errors lead to larger Q-value adjustments than negative adjustments. This is formalized by allowing for two separate learning rates:
+
+$$
+\begin{aligned}
+PE_t &= r_t - Q_t \\
+Q_{t+1} &= Q_t +
+\begin{cases}
+\alpha^{+} \cdot PE_t & \text{if } PE_t > 0 \\
+\alpha^{-} \cdot PE_t & \text{if } PE_t < 0
+\end{cases}
+\end{aligned}
+$$
+One example paper is [@lefebvre2017], who openly share the data, which we can use to demonstrate:
+
+```{r fit_2lr}
+
+load('./data/lefebvre2017/lefebvre_exp1.RData')
+
+all_symbols <- unique(c(dat$s_left, dat$s_right))
+make_covariate_columns <- setNames(lapply(all_symbols,
+                                          covariate_column_generator), all_symbols)
+
+kernel <- make_kernel(all_symbols, 'delta')
+base1 <- make_base('v', 'lin', kernel=kernel, phase='posttransform', coding=list('d'=make_RL_ARD_difference))
+base2 <- make_base('v', 'lin', kernel=kernel, phase='posttransform', coding=list('s'=make_RL_ARD_sum))
+trend <- make_trend(base1, base2)
+trend$kernels$k1$feedback <- list('reward'=feedback_generator)
+
+ADmat <- matrix(c(1, -1), ncol=1, dimnames=list(NULL, c('a-s')))
+design_RDM <- design(model=RDM,
+                     data=dat,
+                     functions=make_covariate_columns,
+                     contrasts=list(cue=ADmat),
+                     formula=list(B ~ 1, v ~ 1, t0 ~ 1),
+                     trend=trend,
+                     constants=c('v.q0'=0),
+                     report_p_vector=TRUE)
+
+emc <- make_emc(dat, design_RDM)
+emc <- fit(emc, cores_per_chain=5, fileName='./samples/lefebvre2017exp1_2lr.RData')
+```
+
+We can inspect the group-level posterior parameters, which indeed suggest that there is a difference between the positive (group-level mean ~ 0.17) and negative (~0.064) learning rates:
+
+```{r 2lr_plots}
+credint(emc)
+plot_pars(emc)
+```
+
+
+While this way of parameterising the model can be used for model comparisons (to demonstrate that two learning rates are needed for a parsimoneous account of the data), it does not directly estimate the *difference* in learning rates - which is likely the target of inference. For that purpose, a better parameterisation would be to fit the mean and difference of the learning rates, such that $\alpha_{pos} = \alpha_{mean} + 0.5*\alpha_{diff}$, and $\alpha_{neg} = \alpha_{mean} - 0.5*\alpha_{diff}$. This way, one can specify a prior on the difference, and obtain participant-wise estimates of it. For factors that vary between conditions (and thus, between rows), `EMC2` uses `R`'s formula language. However, these two learning rates don't vary between rows of the design. Instead, this is a linear reparameterisation. In `EMC2`, we can do this as follows:
+
+
+```{r reparameterise_2lr}
+# design_RDM <- design(model=RDM,
+#                      data=dat,
+#                      functions=make_covariate_columns,
+#                      contrasts=list(cue=ADmat),
+#                      formula=list(B ~ 1, v ~ 1, t0 ~ 1),
+#                      trend=trend,
+#                      constants=c('v.q0'=0),
+#                      report_p_vector=TRUE,
+#                      reparameterisations = list('v.alphaPos'=c('v.alphaMean'=1, 'v.alphaDiff'=0.5),
+#                                                 'v.alphaNeg'=c('v.alphaMean'=1, 'v.alphaDiff'=-0.5)))
+# 
+# emc <- make_emc(dat, design_RDM)
+# emc <- fit(emc, cores_per_chain=20, fileName='./samples/lefebvre2017exp1_2lr-reparam.RData')
+# 
+# # now, we can visualize the posterior over the learning-rate difference: 
+# credint(emc)
+# plot_pars(emc)
+# 
+# # and extract subject-wise learning rate differences:
+# head(parameters(emc, selection='alpha'))
+```
+
+# Example 3: Between-participant differences
+The [@lefebvre2017] paper addresses a between-subject differences question.
+
+
+```{r between-subject}
+
+# grop design
+
+```
+
+
+# Example 4: Counterfactual feedback
+
+
+
 
 <!-- # Example 2: Learning, fast and slow -->
 <!-- So far, we have focused on simple delta rules. While powerful, the delta rule cannot account for all phenomena. EMC2 implements a variety of different learning rules, and in this section and next, we illustrate two of these. -->
