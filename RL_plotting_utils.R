@@ -1,3 +1,202 @@
+#' Add exposure column: how many times this stimulus pair has been shown
+#' to each subject up to and including each trial.
+#'
+#' Stimuli are identified by the sorted combination of s_left and s_right,
+#' so order doesn't matter (s_D+s_e == s_e+s_D).
+#'
+#' @param df Data frame containing `subjects`, `s_left`, `s_right`.
+#' @return integer vector `exposure`
+get_exposure <- function(df) {
+  stimulus_id <- apply(df[, c("s_left", "s_right")], 1, function(x) {
+    paste(sort(x), collapse = "_")
+  })
+  if('postn' %in% names(df)) {
+    exposure <- ave(rep(1, nrow(df)), df$postn, df$subjects, stimulus_id, FUN = cumsum)
+  } else {
+    exposure <- ave(rep(1, nrow(df)), df$subjects, stimulus_id, FUN = cumsum)
+  }
+  exposure
+}
+
+#' @param dat       Data frame of observed data.
+#' @param pp        Data frame of posterior predictive samples (must contain a
+#'                  `postn` column identifying the posterior draw).
+#' @param x.var     Character. Column name to use as the x-axis. The column
+#'                  must already exist in both `dat` and `pp` before calling
+#'                  (e.g. add `exposure` via `get_exposure()` first).
+#' @param acc.var   Character or NULL. Column name for the accuracy variable.
+#'                  If NULL (default), accuracy is computed internally as
+#'                  `S == R`. If provided, the column must already exist in
+#'                  both `dat` and `pp`.
+#' @param row.factor Character or NULL. If supplied, a column name whose levels
+#'                  each produce one row of panels (accuracy | correct RT |
+#'                  error RT). If NULL a single row is produced.
+#' @param xlim      Numeric length-2. x-axis limits (passed to all panels).
+#'                  Defaults to the observed range of `x.var`.
+#' @param acc.ylim  Numeric length-2. y-axis limits for accuracy panels.
+#'                  Default c(0.4, 0.9).
+#' @param n.breaks  Integer. Number of breaks used when `x.var` is `"bin"` and
+#'                  the bin column needs to be created from a `trials` column.
+#'                  Ignored when the column already exists. Default 10.
+plot_learning <- function(dat, pp, x.var, acc.var = NULL, row.factor = NULL, 
+                          xlim = NULL, acc.ylim = c(0.4, 0.9), n.breaks = 10,
+                          set.par = TRUE) {
+  
+  ## ── 0. Resolve accuracy column ────────────────────────────────────────────
+  if (is.null(acc.var)) {
+    dat$accuracy <- dat$S == dat$R
+    pp$accuracy  <- pp$S  == pp$R
+    acc.var <- "accuracy"
+  } else {
+    if (!acc.var %in% colnames(dat))
+      stop(sprintf("acc.var '%s' not found in dat.", acc.var))
+    if (!acc.var %in% colnames(pp))
+      stop(sprintf("acc.var '%s' not found in pp.", acc.var))
+  }
+  
+  ## ── 1. Resolve x.var ──────────────────────────────────────────────────────
+  if (!x.var %in% colnames(dat))
+    stop(sprintf("x.var '%s' not found in dat.", x.var))
+  if (!x.var %in% colnames(pp))
+    stop(sprintf("x.var '%s' not found in pp.", x.var))
+  if (!is.null(n.breaks)) {
+    dat[[x.var]] <- ave(dat[[x.var]], dat$subjects,
+                        FUN = function(x) as.numeric(cut(x, breaks = n.breaks)))
+    pp[[x.var]]  <- ave(pp[[x.var]], pp$subjects,
+                        FUN = function(x) as.numeric(cut(x, breaks = n.breaks)))
+  }
+  ## ── 2. Determine row levels ────────────────────────────────────────────────
+  if (!is.null(row.factor)) {
+    if (!row.factor %in% colnames(dat)) stop(sprintf("row.factor '%s' not found in dat.", row.factor))
+    row.levels <- sort(unique(dat[[row.factor]]))
+  } else {
+    row.levels <- NULL
+  }
+  n.rows <- max(1L, length(row.levels))
+  
+  ## ── 3. x limits ───────────────────────────────────────────────────────────
+  if (is.null(xlim)) xlim <- range(dat[[x.var]], na.rm = TRUE)
+  
+  ## ── 4. Set up plot layout ─────────────────────────────────────────────────
+  if(set.par) par(mfrow = c(n.rows, 3))
+  
+  ## ── 5. Helper: aggregate one row's worth of data ──────────────────────────
+  .agg_row <- function(d, p, x.var, acc.var) {
+    
+    ## Accuracy
+    aggAccS <- aggregate(
+      as.formula(paste(acc.var, "~ subjects *", x.var)), d, mean)
+    aggAccG <- aggregate(
+      as.formula(paste(acc.var, "~", x.var)), aggAccS, mean)
+    
+    ppaggAccS <- aggregate(
+      as.formula(paste(acc.var, "~ subjects *", x.var, "* postn")), p, mean)
+    ppaggAccG <- aggregate(
+      as.formula(paste(acc.var, "~", x.var, "* postn")), ppaggAccS, mean)
+    ppaggAcc  <- aggregate(
+      as.formula(paste(acc.var, "~", x.var)), ppaggAccG,
+      quantile, c(0.025, 0.5, 0.975))
+    
+    ## RT
+    aggRTS <- aggregate(
+      as.formula(paste("rt ~ subjects *", x.var, "*", acc.var)),
+      d, quantile, c(0.1, 0.5, 0.9))
+    aggRTG <- aggregate(
+      as.formula(paste("rt ~", x.var, "*", acc.var)),
+      aggRTS, mean)
+    
+    pphasrt <- !all(is.na(p$rt))
+    ppaggRT <- NULL
+    if (pphasrt) {
+      ppaggRTS <- aggregate(
+        as.formula(paste("rt ~ subjects *", x.var, "*", acc.var, "* postn")),
+        p, quantile, c(0.1, 0.5, 0.9))
+      ppaggRTG <- aggregate(
+        as.formula(paste("rt ~", x.var, "*", acc.var, "* postn")),
+        ppaggRTS, mean)
+      ppaggRT  <- aggregate(
+        as.formula(paste("cbind(`10%`,`50%`,`90%`) ~", x.var, "*", acc.var)),
+        ppaggRTG, quantile, c(0.025, 0.5, 0.975))
+    }
+    
+    list(aggAccG  = aggAccG,
+         ppaggAcc = ppaggAcc,
+         aggRTG   = aggRTG,
+         ppaggRT  = ppaggRT,
+         pphasrt  = pphasrt)
+  }
+  
+  ## ── 6. Helper: draw one row of panels ─────────────────────────────────────
+  .draw_row <- function(agg, x.var, acc.var, xlim, acc.ylim, row.label = NULL) {
+    
+    aggAccG  <- agg$aggAccG
+    ppaggAcc <- agg$ppaggAcc
+    aggRTG   <- agg$aggRTG
+    ppaggRT  <- agg$ppaggRT
+    pphasrt  <- agg$pphasrt
+    
+    ## Panel 1 – Accuracy ──────────────────────────────────────────────────────
+    plot(0, 0, type = "n",
+         xlim = xlim, ylim = acc.ylim,
+         xlab = x.var, ylab = "Accuracy",
+         main = if (!is.null(row.label)) as.character(row.label) else "")
+    abline(h = seq(0, 1, 0.1), col = "lightgray", lty = 2)
+    
+    pp.x <- ppaggAcc[[x.var]]
+    polygon(c(pp.x, rev(pp.x)),
+            c(ppaggAcc[[acc.var]][, 1], rev(ppaggAcc[[acc.var]][, 3])),
+            col = adjustcolor(2, alpha.f = 0.3), border = FALSE)
+    lines(aggAccG[[x.var]], aggAccG[[acc.var]], lwd = 1.5)
+    points(aggAccG[[x.var]], aggAccG[[acc.var]], pch = 19, lwd = 1.5)
+    
+    ## Panels 2 & 3 – RT (correct / error) ────────────────────────────────────
+    for (acc.val in c(1, 0)) {
+      
+      d.sub  <- aggRTG[aggRTG[[acc.var]] == acc.val, ]
+      pp.sub <- if (pphasrt) ppaggRT[ppaggRT[[acc.var]] == acc.val, ] else NULL
+      
+      if (pphasrt) {
+        ylim <- range(c(pp.sub[, 3:5], d.sub[, grep("^rt", colnames(d.sub))]),
+                      na.rm = TRUE)
+      } else {
+        ylim <- range(d.sub[, grep("^rt", colnames(d.sub))], na.rm = TRUE)
+      }
+      
+      plot(0, 0, type = "n",
+           xlim = xlim, ylim = ylim,
+           xlab = x.var, ylab = "RT (s)",
+           main = if (acc.val == 1) "Correct" else "Error")
+      abline(h = seq(0, ceiling(ylim[2]), 0.1), col = "lightgray", lty = 2)
+      
+      for (q_ in c("10%", "50%", "90%")) {
+        if (pphasrt) {
+          pp.x <- pp.sub[[x.var]]
+          polygon(c(pp.x, rev(pp.x)),
+                  c(pp.sub[[q_]][, "2.5%"], rev(pp.sub[[q_]][, "97.5%"])),
+                  col = adjustcolor(2, alpha.f = 0.3), border = FALSE)
+        }
+        lines(d.sub[[x.var]],  d.sub[, q_], lwd = 1.5)
+        points(d.sub[[x.var]], d.sub[, q_], pch = 19, lwd = 1.5)
+      }
+    }
+  }
+  
+  ## ── 7. Loop over rows ─────────────────────────────────────────────────────
+  if (is.null(row.levels)) {
+    agg <- .agg_row(dat, pp, x.var, acc.var)
+    .draw_row(agg, x.var, acc.var, xlim, acc.ylim)
+  } else {
+    for (lv in row.levels) {
+      d.sub <- dat[dat[[row.factor]] == lv, ]
+      p.sub <- pp[pp[[row.factor]]  == lv, ]
+      agg   <- .agg_row(d.sub, p.sub, x.var, acc.var)
+      .draw_row(agg, x.var, acc.var, xlim, acc.ylim, row.label = lv)
+    }
+  }
+  
+  invisible(NULL)
+}
+
 ## RL functions
 plot_exp1 <- function(dat, pp, do.par=TRUE) {
   dat$accuracy <- dat$S==dat$R
