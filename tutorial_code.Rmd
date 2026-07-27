@@ -1,8 +1,12 @@
 ---
 title: "A step-by-step guide to reinforcement learning evidence accumulation models of instrumental learning tasks"
-author: "Steven Miletić, Niek Stevenson, (some other people probably), Andrew Heathcote"
+author: "Steven Miletić, Niek Stevenson, Luke Strickland, Andrew Heathcote"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    highlight: pygments
   bookdown::pdf_document2:
     latex_engine: xelatex
     highlight: pygments
@@ -10,10 +14,6 @@ output:
     toc: false
     includes:
       in_header: preamble.tex
-  bookdown::html_document2:
-    toc: true
-    toc_float: true
-    highlight: pygments
 link-citations: true
 bibliography: bibliography.bib
 ---
@@ -83,6 +83,9 @@ print_par <- function(layout = "1panel") {
     "3x2"    = par(mar = c(2.5, 2.5, 1.5, 0.5), mgp = c(1.5, 0.4, 0), tcl = -0.3,
                    mfrow = c(3, 2),
                    cex = 0.5625, cex.axis = 1, cex.lab = 1.133, cex.main = 1.133),
+    "3x3"    = par(mar = c(2.5, 2.5, 1.5, 0.5), mgp = c(1.5, 0.4, 0), tcl = -0.3,
+                   mfrow = c(3, 3),
+                   cex = 0.5625, cex.axis = 1, cex.lab = 1.133, cex.main = 1.133),
     "4x3"    = par(mar = c(3, 2.5, 1.5, 0.5),   mgp = c(1.5, 0.4, 0), tcl = -0.3,
                    mfrow = c(4, 3),
                    cex = 0.5625, cex.axis = 1, cex.lab = 1.133, cex.main = 1.133),
@@ -105,6 +108,7 @@ fig_w <- list(
   "2x3"    = 5.0,
   "2x4"    = 5.5,
   "3x2"    = 4.0,
+  "3x3"    = 5.0,
   "4x3"    = 5.0,
   "3x4"    = 5.5
 )
@@ -120,6 +124,7 @@ fig_h <- list(
   "2x3"    = 2.5,
   "2x4"    = 2.5,
   "3x2"    = 5.0,
+  "3x3"    = 5.0,
   "4x3"    = 7.5,
   "3x4"    = 5.0
 )
@@ -997,7 +1002,7 @@ design_RDM <- design(model=RDM,
                      formula=list(B ~ 1, v ~ 1, t0 ~ 1),
                      trend=trend,
                      constants=c('v.q0'=0),
-                     report_p_vector=TRUE)
+                     report_p_vector=FALSE)
 
 emc <- make_emc(dat, design_RDM)
 ```
@@ -1085,12 +1090,11 @@ if (file.exists(lef2lr_reparam_fn)) {
 }
 ```
 
-We can now inspect the posterior over the learning rate difference directly, and extract participant-wise estimates:
+We can now inspect the posterior over the learning rate difference directly:
 
 ```{r 2lr-reparam-plotpars-code, eval=FALSE}
 plot_pars(emc_2lr_reparam)
 credint(emc_2lr_reparam)
-head(parameters(emc_2lr_reparam, selection = 'alpha'))
 ```
 
 ```{r 2lr-reparam-plotpars-run, echo=FALSE, fig.width=fig_w[["1x4"]], fig.height=fig_h[["1x4"]], fig.cap=cap, dependson="2lr-reparam-fit-run"}
@@ -1109,105 +1113,107 @@ plot_pars(emc_2lr_reparam, set.par = FALSE)
 credint(emc_2lr_reparam)
 ```
 
-```{r 2lr-reparam-alpha, dependson="2lr-reparam-fit-run"}
-head(parameters(emc_2lr_reparam, selection = 'alpha'))
-```
-
 
 # Factual and counterfactual feedback
-An alternative proposal [@palminteriConfirmationBiasHuman2017] is that people don't show 'optimism' bias per se, but rather confirmation bias: Any feedback that confirms the current belief processed with a higher learning rate than feedback that opposes current beliefs. If we consider choosing left as expressing a belief that left is more valuable, than this also leads to 'optimism' bias: higher learning rates for better-than-expected rewards (positive RPEs) compared to less-than-expected (negative RPEs). The case of counterfactual feedback can be used to dissociate these two accounts. In an experiment with counterfactual feedback, feedback is presented on both choice options after each choice. The confirmation-bias account suggests that for *chosen* options, the learning rate for positive RPEs should be higher than for negative RPEs. However, for *unchosen* options, the reverse should be the case. That is because not-choosing an option implies believing it is less valuable, and in that case, a less-than-expected RPE confirms that belief, and thus should have a higher learning rate.
+An alternative account of asymmetric learning rates is the confirmation bias hypothesis [@palminteriConfirmationBiasHuman2017]: rather than an optimism bias, people process feedback that *confirms* their current belief with a higher learning rate than feedback that *opposes* it. If choosing an option expresses a belief that that option is more valuable, this also predicts higher learning rates for positive prediction errors on chosen options — but crucially, it makes the opposite prediction for unchosen options. Not choosing an option implies believing it is less valuable, so a worse-than-expected outcome for the unchosen option *confirms* that belief and should be processed with a higher learning rate.
 
-As a finale example, we demonstrate how to implement this in *EMC2*. Here, we use the data from the second experiment from @palminteriConfirmationBiasHuman2017, which contains factual and counterfactual feedback.
+Counterfactual feedback — where outcomes are revealed for both the chosen and unchosen option after each trial — allows these two accounts to be dissociated. Under the confirmation bias account, the learning rate asymmetry (positive > negative) should *reverse* for unchosen options. We demonstrate how to implement this in *EMC2* using [experiment 2](https://figshare.com/articles/dataset/Confirmation_bias_in_human_reinforcement_learning_evidence_from_counterfactual_feedback_processing/5220619?file=8916295) from @palminteriConfirmationBiasHuman2017, which includes both factual and counterfactual feedback.
 
-```{r factualcounterfactual-design}
+### Data and design
+
+The key difference from earlier examples is that feedback is now accumulator-specific: the chosen accumulator receives the outcome for the chosen option, and the unchosen accumulator receives the outcome for the unchosen option. This requires a modified covariate column generator that routes feedback to the correct accumulator based on `lR`, and two separate feedback generators for simulation:
+
+```{r confirmation-data-functions}
 load('./data/palminteri2017_exp2.RData')
 
-all_symbols <- unique(c(dat$s_left, dat$s_right))
-all_symbols <- all_symbols[order(as.numeric(gsub('[^0-9]', '', all_symbols)))]
+all_symbols_cf <- unique(c(dat$s_left, dat$s_right))
+all_symbols_cf <- all_symbols_cf[order(as.numeric(gsub('[^0-9]', '', all_symbols_cf)))]
 
-# The feedback now differs between accumulators. For that reason, we need a new covariate column generator
-covariate_column_generator <- function(col_name) {
-  f <- function(data) {
-    out <- rep(NA, nrow(data))
-    
+# Covariate column generator: routes factual/counterfactual feedback to the
+# correct accumulator based on lR (left accumulator gets reward_left, etc.)
+covariate_column_generator_cf <- function(col_name) {
+  function(data) {
+    out      <- rep(NA, nrow(data))
     is_left  <- data$lR == "left"  & data$s_left  == col_name
     is_right <- data$lR == "right" & data$s_right == col_name
-    
     out[is_left]  <- data$reward_left[is_left]
     out[is_right] <- data$reward_right[is_right]
-    
     out
   }
-  return(f)
 }
 
-make_covariate_columns <- setNames(lapply(all_symbols,
-                                          covariate_column_generator), all_symbols)
+make_covariate_columns_cf <- setNames(
+  lapply(all_symbols_cf, covariate_column_generator_cf),
+  all_symbols_cf
+)
 
-# We also need to present feedback to both choice options when simulation new data. Hence, we build two feedback generators
+# Feedback generators for simulation: one per side
 feedback_generator_left <- function(d) {
-  if ("lR" %in% names(d) && nlevels(d$lR) > 1) {
-    data        <- d[d$lR == levels(d$lR)[1], ]
-    reward_left <- rbinom(nrow(data), 1, data$p_left)
-    rep(reward_left, each = nlevels(d$lR))
-  } else {
-    rbinom(nrow(d), 1, d$p_left)
-  }
+  data <- d[d$lR == levels(d$lR)[1], ]
+  rep(rbinom(nrow(data), 1, data$p_left) * 2 - 1, each = nlevels(d$lR))
 }
 
 feedback_generator_right <- function(d) {
-  if ("lR" %in% names(d) && nlevels(d$lR) > 1) {
-    data         <- d[d$lR == levels(d$lR)[1], ]
-    reward_right <- rbinom(nrow(data), 1, data$p_right)
-    rep(reward_right, each = nlevels(d$lR))
-  } else {
-    rbinom(nrow(d), 1, d$p_right)
-  }
+  data <- d[d$lR == levels(d$lR)[1], ]
+  rep(rbinom(nrow(data), 1, data$p_right) * 2 - 1, each = nlevels(d$lR))
 }
-
-kernel <- make_kernel(all_symbols, 'delta2lr', at_mode='push')
-base1 <- make_base('v', 'lin', kernel=kernel, phase='posttransform', coding=list('d'=make_RL_ARD_difference))
-base2 <- make_base('v', 'lin', kernel=kernel, phase='posttransform', coding=list('s'=make_RL_ARD_sum))
-trend <- make_trend(base1, base2)
-
-ADmat <- matrix(c(1, -1), ncol=1, dimnames=list(NULL, c('a-s')))
-design_RDM <- design(model=RDM,
-                     data=dat,
-                     functions=c(chosen=function(x) x$R==x$lR,
-                                 reward_left=feedback_generator_left,
-                                 reward_right=feedback_generator_right,
-                                 make_covariate_columns),
-                     formula=list(B ~ 1, v ~ 1, t0 ~ 1, v.alphaPos~chosen-1, v.alphaNeg~chosen-1),
-                     trend=trend,
-                     constants=c('v.q0'=0),
-                     report_p_vector=TRUE)
-
-emc <- make_emc(dat, design_RDM)
 ```
+
+We can use these new functions in an RL-ARD as follows: 
+
+```{r confirmation-design, dependson="confirmation-data-functions"}
+# at_mode="push" needs some explanation
+kernel_cf    <- make_kernel(all_symbols_cf, 'delta2lr', at_mode = 'push')
+base_diff_cf <- make_base('v', 'lin', kernel = kernel_cf,
+                          coding = list(d = make_RL_ARD_difference),
+                          phase  = 'posttransform')
+base_sum_cf  <- make_base('v', 'lin', kernel = kernel_cf,
+                          coding = list(s = make_RL_ARD_sum),
+                          phase  = 'posttransform')
+trend_cf <- make_trend(base_diff_cf, base_sum_cf)
+
+design_cf <- design(model     = RDM,
+                    data      = dat,
+                    functions = c(chosen        = function(x) x$R == x$lR,
+                                  reward_left   = feedback_generator_left,
+                                  reward_right  = feedback_generator_right,
+                                  make_covariate_columns_cf),
+                    formula   = list(B ~ 1, v ~ 1, t0 ~ 1,
+                                     v.alphaPos ~ chosen, v.alphaNeg ~ chosen,
+                                     v.q0 ~ 1),
+                    trend     = trend_cf,
+                    constants = c('v.q0' = 0),
+                    report_p_vector = FALSE)
+
+emc_cf <- make_emc(dat, design_cf)
+```
+
+The `chosen` function in `functions` creates a covariate that is `TRUE` for the chosen accumulator and `FALSE` for the unchosen accumulator on each trial. By including `v.alphaPos ~ chosen` and `v.alphaNeg ~ chosen` in the formula, we allow both learning rates to vary between the chosen and unchosen accumulators, directly testing the confirmation bias prediction.
 
 We can fit as normal:
 
-```{r factualcounterfactual-fit-code, eval=FALSE}
-emc <- fit(emc)
+```{r confirmation-fit-code, eval=FALSE}
+emc_cf <- fit(emc_cf)
 ```
 
-```{r factualcounterfactual-fit-run, include=FALSE, dependson=c("factualcounterfactual-design")}
-fn <- "./cache/factualcounterfactual.RData"
-
-if (file.exists(fn)) {
-  emc <- EMC2:::loadRData(fn)
+```{r confirmation-fit-run, include=FALSE, dependson="confirmation-data-design"}
+cf_fn <- "./cache/palminteri2017exp2_cf.RData"
+if (file.exists(cf_fn)) {
+  emc_cf <- EMC2:::loadRData(cf_fn)
 } else {
-  emc <- make_emc(dat, design_RDM)
-  emc <- fit(emc, cores_per_chain = 5, fileName = fn)
-  emc <- add_ICs_MLL(emc)
-  save(emc, file = fn)
+  emc_cf <- make_emc(dat, design_cf)
+  emc_cf <- fit(emc_cf, cores_per_chain = 5, fileName = cf_fn)
+  emc_cf <- add_ICs_MLL(emc_cf)
+  save(emc_cf, file = cf_fn)
 }
 ```
 
-And generate posterior predictives and plot. Note that two of the conditions are difficult to plot with accuracy-coding of the choices: The first condition has equal reward probabilities for all symbols, so there is no "correct" answer in any trial. The fourth condition has a reversal, where the reward probabilities switch between symbols after 13 trials. So instead of plotting the accuracy, we can simply plot the probability of choosing 'right' in the first column, and plot conditions in rows:
+### Quality of fit & testing
 
-```{r factualcounterfactual-pp-code, eval=FALSE}
-pp <- predict(emc)
+Two of the four conditions are difficult to summarise with accuracy: the first condition has equal reward probabilities for all symbols (so there is no objectively correct response), and the fourth condition includes a reversal after 13 trials. We therefore plot the probability of choosing right instead of accuracy, with conditions in rows:
+
+```{r confirmation-pp-code, eval=FALSE}
+pp <- predict(emc_cf)
 dat$choice <- dat$R=='right'
 pp$choice <- pp$R=='right'
 plot_learning(dat, pp[is.finite(pp$rt),], x.var='exposure', acc.var = 'choice', 
@@ -1215,13 +1221,22 @@ plot_learning(dat, pp[is.finite(pp$rt),], x.var='exposure', acc.var = 'choice',
 ```
 
 
-```{r factualcounterfactual-pp-run, echo=FALSE, fig.width=fig_w[["4x3"]], fig.height=fig_h[["4x3"]], dependson="factualcounterfactual-fit-run"}
-pp <- predict(emc, n_cores=20, conditional_on_data=TRUE)
+```{r confirmation-pp-run, echo=FALSE, fig.cap=cap, fig.width=fig_w[["3x3"]], fig.height=fig_h[["3x3"]], dependson=c("confirmation-fit-run")}
+cap <- paste0(
+  "Learning plots of the confirmation bias RL-ARD, separately for each condition (rows). ",
+  "Left panel: probability of choosing right as a function of exposure, binned into 10 bins. ",
+  "Black lines are data; red shaded areas are the 95\\% credible interval of the posterior ",
+  "predictives. Middle and right panels: correct and error RT distributions, respectively. ",
+  "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles."
+)
+
+pp <- predict(emc_cf, n_cores=20, shrink2bound=TRUE)
+dat <- get_data(emc_cf)
 dat$choice <- dat$R=='right'
 pp$choice <- pp$R=='right'
-print_par("4x3")
-plot_learning(dat, pp[is.finite(pp$rt),], x.var='exposure', acc.var = 'choice', 
-              acc.ylim = c(0, 1), row.factor = 'condition', set.par=FALSE)
+print_par("3x3")
+plot_learning(dat, pp[is.finite(pp$rt)&pp$rt<10,], x.var='exposure', acc.var = 'choice', 
+              acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE)
 ```
 
 And what are the resulting parameters?
@@ -1229,6 +1244,5 @@ And what are the resulting parameters?
 credint(emc, map=TRUE)
 ```
 
-Which indeed shows the expected interaction between learning rate valence and chosen/unchosen.
-
+The credible intervals show the expected interaction: for chosen options, the positive learning rate exceeds the negative learning rate, whereas for unchosen options the pattern reverses — consistent with confirmation bias rather than a general optimism bias.
 
