@@ -3,10 +3,6 @@ title: "A step-by-step guide to reinforcement learning evidence accumulation mod
 author: "Steven Miletić, Niek Stevenson, Luke Strickland, Andrew Heathcote"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
-  bookdown::html_document2:
-    toc: true
-    toc_float: true
-    highlight: pygments
   bookdown::pdf_document2:
     latex_engine: xelatex
     highlight: pygments
@@ -14,6 +10,10 @@ output:
     toc: false
     includes:
       in_header: preamble.tex
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    highlight: pygments
 link-citations: true
 bibliography: bibliography.bib
 ---
@@ -140,7 +140,7 @@ First, let's load the required packages and data:
 
 ```{r load-data}
 # TMP -- install the right branch
-# remotes::install_github("ampl-psych/EMC2@trend_api",dependencies=TRUE, Ncpus=8);.rs.restartR()
+# remotes::install_github("ampl-psych/EMC2@dev", dependencies=TRUE, Ncpus=8);.rs.restartR()
 # END TMP
 library(EMC2)
 set.seed(1) # for reproducibility
@@ -152,7 +152,7 @@ code_url <- paste0(
 source(code_url)
 
 # Load dataset 1 from Miletić et al. (2021)
-load('./data/data_exp1.RData')
+load('./data/miletic2021/data_exp1.RData')
 
 # Exclude participants that are marked 'excl' by Miletic et al. (2021)
 dat <- dat[!dat$excl, ]
@@ -480,6 +480,8 @@ if (file.exists(rlrd_fn)) {
   emc_rlrd <- EMC2:::loadRData(rlrd_fn)
 } else {
   emc_rlrd <- fit(emc, cores_per_chain = 5, fileName = rlrd_fn)
+  emc_rlrd <- add_ICs_MLL(emc_rlrd)
+  save(emc_rlrd, file = rlrd_fn)
 }
 ```
 
@@ -536,7 +538,7 @@ plot_learning(dat=dat_rlrd, pp=pp_rlrd, x.var='exposure', n.breaks=10)
 ```
 
 ```{r rlrd-pp-run, echo=FALSE, fig.width=fig_w[["1x3"]], fig.height=fig_h[["1x3"]], fig.cap=cap, dependson="rlrd-fit-run"}
-pp_rlrd <- predict(emc_rlrd, n_post = 50, n_cores = 20)
+pp_rlrd <- predict(emc_rlrd, n_cores=24)
 
 cap <- "Learning plots of the RL-RD. Left panel shows accuracy over exposure (i.e., the number of times a stimulus pair has been seen), binned into 10 bins. Black lines are data, red shaded areas are 90% credible interval of the model's posterior predictives. Middle and right panels show correct and error RT distributions, respectively. The lower, middle, and top lines correspond to the 10th, 50th, and 90th RT quantiles."
 print_par("1x3")
@@ -789,7 +791,7 @@ Many research questions ask which cognitive processes are affected by an experim
 The data preparation follows the same steps as Section \@ref(sec:rlrd), and retains the `cue` column (levels: `"accuracy"`, `"speed"`), which will enter the model formula as a between-condition factor:
 
 ```{r sat-load-data}
-load('./data/data_exp3.RData')
+load('./data/miletic2021/data_exp3.RData')
 dat <- dat[!dat$excl, ]
 dat <- dat[!is.na(dat$rt), ]
 dat$rt <- round(dat$rt, 3)
@@ -994,11 +996,9 @@ base1 <- make_base('v', 'lin', kernel=kernel, phase='posttransform', coding=list
 base2 <- make_base('v', 'lin', kernel=kernel, phase='posttransform', coding=list('s'=make_RL_ARD_sum))
 trend <- make_trend(base1, base2)
 
-ADmat <- matrix(c(1, -1), ncol=1, dimnames=list(NULL, c('a-s')))
 design_RDM <- design(model=RDM,
                      data=dat,
                      functions=make_covariate_columns,
-                     contrasts=list(cue=ADmat),
                      formula=list(B ~ 1, v ~ 1, t0 ~ 1),
                      trend=trend,
                      constants=c('v.q0'=0),
@@ -1015,7 +1015,7 @@ check(emc)
 credint(emc)
 ```
 
-```{r 2lr-fit-run, include=FALSE, dependson="rlard-design"}
+```{r 2lr-fit-run, include=FALSE, dependson="2lr-data-design"}
 lef2lr_fn <- "./cache/lefebvre2017exp1_2lr.RData"
 if (file.exists(lef2lr_fn)) {
   emc <- EMC2:::loadRData(lef2lr_fn)
@@ -1124,7 +1124,7 @@ Counterfactual feedback — where outcomes are revealed for both the chosen and 
 The key difference from earlier examples is that feedback is now accumulator-specific: the chosen accumulator receives the outcome for the chosen option, and the unchosen accumulator receives the outcome for the unchosen option. This requires a modified covariate column generator that routes feedback to the correct accumulator based on `lR`, and two separate feedback generators for simulation:
 
 ```{r confirmation-data-functions}
-load('./data/palminteri2017_exp2.RData')
+load('./data/palminteri2017/palminteri2017_exp2.RData')
 
 all_symbols_cf <- unique(c(dat$s_left, dat$s_right))
 all_symbols_cf <- all_symbols_cf[order(as.numeric(gsub('[^0-9]', '', all_symbols_cf)))]
@@ -1196,7 +1196,7 @@ We can fit as normal:
 emc_cf <- fit(emc_cf)
 ```
 
-```{r confirmation-fit-run, include=FALSE, dependson="confirmation-data-design"}
+```{r confirmation-fit-run, include=FALSE, dependson="confirmation-design"}
 cf_fn <- "./cache/palminteri2017exp2_cf.RData"
 if (file.exists(cf_fn)) {
   emc_cf <- EMC2:::loadRData(cf_fn)
@@ -1230,7 +1230,7 @@ cap <- paste0(
   "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles."
 )
 
-pp <- predict(emc_cf, n_cores=20, shrink2bound=TRUE)
+pp <- predict(emc_cf, n_cores=24, shrink2bound=TRUE)
 dat <- get_data(emc_cf)
 dat$choice <- dat$R=='right'
 pp$choice <- pp$R=='right'
@@ -1241,7 +1241,7 @@ plot_learning(dat, pp[is.finite(pp$rt)&pp$rt<10,], x.var='exposure', acc.var = '
 
 And what are the resulting parameters?
 ```{r factualcounterfactual-credint}
-credint(emc, map=TRUE)
+credint(emc_cf, map=TRUE)
 ```
 
 The credible intervals show the expected interaction: for chosen options, the positive learning rate exceeds the negative learning rate, whereas for unchosen options the pattern reverses — consistent with confirmation bias rather than a general optimism bias.
