@@ -156,10 +156,11 @@ plot_learning <- function(dat, pp, x.var, acc.var = NULL, row.factor = NULL,
       pp.sub <- if (pphasrt) ppaggRT[ppaggRT[[acc.var]] == acc.val, ] else NULL
       
       if (pphasrt) {
-        ylim <- range(c(pp.sub[, 3:5], d.sub[, grep("^rt", colnames(d.sub))]),
+        ylim <- range(c(pp.sub[, c("10%", "50%", "90%")],
+                        d.sub[,  c("10%", "50%", "90%")]),
                       na.rm = TRUE)
       } else {
-        ylim <- range(d.sub[, grep("^rt", colnames(d.sub))], na.rm = TRUE)
+        ylim <- range(d.sub[, c("10%", "50%", "90%")], na.rm = TRUE)
       }
       
       plot(0, 0, type = "n",
