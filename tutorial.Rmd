@@ -3,6 +3,10 @@ title: "A step-by-step guide to reinforcement learning evidence accumulation mod
 author: "Steven Miletić, Niek Stevenson, Luke Strickland, Andrew Heathcote"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    highlight: pygments
   bookdown::pdf_document2:
     latex_engine: xelatex
     highlight: pygments
@@ -10,10 +14,6 @@ output:
     toc: false
     includes:
       in_header: preamble.tex
-  bookdown::html_document2:
-    toc: true
-    toc_float: true
-    highlight: pygments
 link-citations: true
 bibliography: bibliography.bib
 ---
@@ -1240,9 +1240,198 @@ plot_learning(dat, pp[is.finite(pp$rt)&pp$rt<10,], x.var='exposure', acc.var = '
 ```
 
 And what are the resulting parameters?
-```{r factualcounterfactual-credint}
+```{r confirmation-credint}
 credint(emc_cf, map=TRUE)
 ```
 
 The credible intervals show the expected interaction: for chosen options, the positive learning rate exceeds the negative learning rate, whereas for unchosen options the pattern reverses — consistent with confirmation bias rather than a general optimism bias.
 
+
+## Confirmation & Softmax
+In case you want to use softmax, here's an example below. Note that convergence properties tend to be worse than with RL-EAMs. The model is called "multinomial logit" rather than softmax. Softmax is a function with the input termed "utility" within EMC2. Therefore, we need to have the base affect the "utility" parameter, and make sure to set the intercept of utility to a constant of 0.
+
+```{r confirmation-softmax-design, dependson="confirmation-data-functions"}
+kernel_cf_sm    <- make_kernel(all_symbols_cf, 'delta2lr', at_mode = 'push')
+base_diff_cf_sm  <- make_base('utility', 'lin', kernel = kernel_cf_sm,
+                          coding = list(d = make_RL_ARD_difference),
+                          phase  = 'posttransform')
+trend_cf_sm <- make_trend(base_diff_cf_sm)
+
+design_cf_sm <- design(model     = multinomial_logit,
+                    data      = dat,
+                    functions = c(chosen        = function(x) x$R == x$lR,
+                                  reward_left   = feedback_generator_left,
+                                  reward_right  = feedback_generator_right,
+                                  make_covariate_columns_cf),
+                    formula   = list(utility ~ 1,
+                                     utility.alphaPos ~ chosen, utility.alphaNeg ~ chosen,
+                                     utility.q0 ~ 1),
+                    trend     = trend_cf_sm,
+                    constants = c('utility.q0' = 0, 'utility' = 0),
+                    report_p_vector = FALSE)
+```
+Which we can combine with the data and fit as usual:
+```{r confirmation-softmax-fit-code, eval=FALSE}
+emc_cf_sm <- make_emc(dat, design_cf_sm)
+fit(emc_cf_sm)
+```
+
+```{r confirmation-softmax-fit-run, echo=FALSE}
+cf_fn <- "./cache/palminteri2017exp2_cf_sm.RData"
+if (file.exists(cf_fn)) {
+  emc_cf_sm <- EMC2:::loadRData(cf_fn)
+} else {
+  emc_cf_sm <- make_emc(dat, design_cf_sm)
+  emc_cf_sm <- fit(emc_cf_sm, cores_per_chain = 5, fileName = cf_fn)
+  emc_cf_sm <- add_ICs_MLL(emc_cf_sm)
+  save(emc_cf_sm, file = cf_fn)
+}
+```
+
+You might need to try twice to get it to converge. But once converged, we can demonstrate that the posterior parameters of the learning rates in the softmax model supports the confirmation bias hypothesis, albeit with substantially different absolute learning rate compared to the RL-ARD:
+
+```{r confirmation-sm-credint}
+credint(emc_cf_sm, map=TRUE)
+```
+
+The quality of fit seems okay:
+```{r confirmation-sm-pp-code, eval=FALSE}
+pp <- predict(emc_cf_sm)
+dat$choice <- dat$R=='right'
+pp$choice <- pp$R=='right'
+pp$rt <- NA
+plot_learning(dat, pp, x.var='exposure', acc.var = 'choice', 
+              acc.ylim = c(0, 1), row.factor = 'condition')
+```
+
+```{r confirmation-sm-pp-run, echo=FALSE, fig.cap=cap, fig.width=fig_w[["3x3"]], fig.height=fig_h[["3x3"]], dependson=c("confirmation-fit-run")}
+cap <- paste0(
+  "Learning plots of the confirmation bias softmax model, separately for each condition (rows). ",
+  "Left panel: probability of choosing right as a function of exposure, binned into 10 bins. ",
+  "Black lines are data; red shaded areas are the 95\\% credible interval of the posterior ",
+  "predictives. Middle and right panels: correct and error RT distributions, respectively. ",
+  "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles."
+)
+
+pp <- predict(emc_cf_sm, n_cores=24, shrink2bound=TRUE)
+dat <- get_data(emc_cf_sm)
+dat$choice <- dat$R=='right'
+pp$choice <- pp$R=='right'
+pp$rt <- NA
+print_par("3x3")
+plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE)
+```
+
+#### In both cases - can we estimate q0?
+```{r confirmation-softmax-design_q0}
+design_cf_sm_q0 <- design(model     = multinomial_logit,
+                          data      = dat,
+                          functions = c(chosen        = function(x) x$R == x$lR,
+                                        reward_left   = feedback_generator_left,
+                                        reward_right  = feedback_generator_right,
+                                        make_covariate_columns_cf),
+                          formula   = list(utility ~ 1,
+                                           utility.alphaPos ~ chosen, utility.alphaNeg ~ chosen,
+                                           utility.q0 ~ 1),
+                          transform = list(func=c('utility.q0'='pnorm'), lower=c('utility.q0'=-1)),
+                          trend     = trend_cf_sm,
+                          constants = c('utility' = 0),
+                          report_p_vector = FALSE)
+
+design_cf_q0 <- design(model     = RDM,
+                      data      = dat,
+                      functions = c(chosen        = function(x) x$R == x$lR,
+                                    reward_left   = feedback_generator_left,
+                                    reward_right  = feedback_generator_right,
+                                    make_covariate_columns_cf),
+                      formula   = list(B ~ 1, v ~ 1, t0 ~ 1,
+                                       v.alphaPos ~ chosen, v.alphaNeg ~ chosen,
+                                       v.q0 ~ 1),
+                      trend     = trend_cf,
+                      transform = list(func=c('v.q0'='pnorm'), lower=c('v.q0'=-1)),
+#                      constants = c('v.q0' = 0),
+                      report_p_vector = FALSE)
+```
+
+```{r confirmation-q0-fit}
+cf_fn1 <- "./cache/palminteri2017exp2_cf_sm_q0.RData"
+if (file.exists(cf_fn1)) {
+  emc_cf_sm_q0 <- EMC2:::loadRData(cf_fn1)
+} else {
+  emc_cf_sm_q0 <- make_emc(dat, design_cf_sm_q0)
+  emc_cf_sm_q0 <- fit(emc_cf_sm_q0, cores_per_chain = 5, fileName = cf_fn1, max_tries=40)
+  emc_cf_sm_q0 <- add_ICs_MLL(emc_cf_sm_q0)
+  save(emc_cf_sm_q0, file = cf_fn1)
+}
+
+cf_fn2 <- "./cache/palminteri2017exp2_cf_q0.RData"
+if (file.exists(cf_fn2)) {
+  emc_cf_q0 <- EMC2:::loadRData(cf_fn2)
+} else {
+  emc_cf_q0 <- make_emc(dat, design_cf_q0)
+  emc_cf_q0 <- fit(emc_cf_q0, cores_per_chain = 5, fileName = cf_fn2)
+  emc_cf_q0 <- add_ICs_MLL(emc_cf_q0)
+  save(emc_cf_q0, file = cf_fn2)
+}
+```
+
+The softmax model has difficulties converging. Just out of curiosity - what do the posteriors of these models imply about q0, and confirmation bias?
+```{r confirmation-q0-credint}
+credint(emc_cf_sm_q0, map=TRUE)
+credint(emc_cf_q0, map=TRUE)
+```
+
+And quality of fit?
+```{r confirmation-q0-pp-code, eval=FALSE}
+# Softmax
+pp <- predict(emc_cf_sm_q0)
+dat$choice <- dat$R=='right'
+pp$choice <- pp$R=='right'
+pp$rt <- NA
+plot_learning(dat, pp, x.var='exposure', acc.var = 'choice', 
+              acc.ylim = c(0, 1), row.factor = 'condition')
+
+# RL-ARD
+pp <- predict(emc_cf_q0)
+dat$choice <- dat$R=='right'
+pp$choice <- pp$R=='right'
+plot_learning(dat, pp, x.var='exposure', acc.var = 'choice', 
+              acc.ylim = c(0, 1), row.factor = 'condition')
+```
+
+
+```{r confirmation-q01-pp-run, echo=FALSE, fig.cap=cap, fig.width=fig_w[["3x3"]], fig.height=fig_h[["3x3"]], dependson=c("confirmation-fit-run")}
+cap <- paste0(
+  "Learning plots of the confirmation bias softmax model with q0 estimated, separately for each condition (rows). ",
+  "Left panel: probability of choosing right as a function of exposure, binned into 10 bins. ",
+  "Black lines are data; red shaded areas are the 95\\% credible interval of the posterior ",
+  "predictives. Middle and right panels: correct and error RT distributions, respectively. ",
+  "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles."
+)
+
+pp <- predict(emc_cf_sm_q0, n_cores=24, shrink2bound=TRUE)
+dat <- get_data(emc_cf_sm_q0)
+dat$choice <- dat$R=='right'
+pp$choice <- pp$R=='right'
+pp$rt <- NA
+print_par("3x3")
+plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE)
+```
+
+
+```{r confirmation-q02-pp-run, echo=FALSE, fig.cap=cap, fig.width=fig_w[["3x3"]], fig.height=fig_h[["3x3"]], dependson=c("confirmation-fit-run")}
+cap <- paste0(
+  "Learning plots of the confirmation bias RL-ARD model with q0 estimated, separately for each condition (rows). ",
+  "Left panel: probability of choosing right as a function of exposure, binned into 10 bins. ",
+  "Black lines are data; red shaded areas are the 95\\% credible interval of the posterior ",
+  "predictives. Middle and right panels: correct and error RT distributions, respectively. ",
+  "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles."
+)
+
+pp <- predict(emc_cf_q0, n_cores=24, shrink2bound=TRUE)
+dat <- get_data(emc_cf_q0)
+dat$choice <- dat$R=='right'
+pp$choice <- pp$R=='right'
+print_par("3x3")
+plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE)
+```
