@@ -3,10 +3,6 @@ title: "A step-by-step guide to reinforcement learning evidence accumulation mod
 author: "Steven Miletić, Niek Stevenson, Luke Strickland, Andrew Heathcote"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
-  bookdown::html_document2:
-    toc: true
-    toc_float: true
-    highlight: pygments
   bookdown::pdf_document2:
     latex_engine: xelatex
     highlight: pygments
@@ -14,6 +10,10 @@ output:
     toc: false
     includes:
       in_header: preamble.tex
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    highlight: pygments
 link-citations: true
 bibliography: bibliography.bib
 ---
@@ -783,6 +783,7 @@ compare(list(rlrd  = emc_rlrd,
              rlard = emc_rlard))
 ```
 
+
 # Factors on parameters — the speed-accuracy trade-off {#sec:sat}
 Many research questions ask which cognitive processes are affected by an experimental manipulation. A classic example in the decision-making literature is the speed-accuracy trade-off (SAT): when instructed to respond quickly, people tend to lower their response thresholds; when instructed to be accurate, they raise them. This section reproduces the results from experiment 2 of @Miletic2021, in which participants performed an instrumental learning task with trial-by-trial cues instructing them to emphasise either speed or accuracy. We fit an RL-ARD to test whether this manipulation affected response thresholds (`B`), drift rate urgency (`v`), or both.
 
@@ -1119,7 +1120,7 @@ An alternative account of asymmetric learning rates is the confirmation bias hyp
 
 Counterfactual feedback — where outcomes are revealed for both the chosen and unchosen option after each trial — allows these two accounts to be dissociated. Under the confirmation bias account, the learning rate asymmetry (positive > negative) should *reverse* for unchosen options. We demonstrate how to implement this in *EMC2* using [experiment 2](https://figshare.com/articles/dataset/Confirmation_bias_in_human_reinforcement_learning_evidence_from_counterfactual_feedback_processing/5220619?file=8916295) from @palminteriConfirmationBiasHuman2017, which includes both factual and counterfactual feedback.
 
-### Data and design
+## Data and design
 
 The key difference from earlier examples is that feedback is now accumulator-specific: the chosen accumulator receives the outcome for the chosen option, and the unchosen accumulator receives the outcome for the unchosen option. This requires a modified covariate column generator that routes feedback to the correct accumulator based on `lR`, and two separate feedback generators for simulation:
 
@@ -1208,7 +1209,7 @@ if (file.exists(cf_fn)) {
 }
 ```
 
-### Quality of fit & testing
+## Quality of fit & testing
 
 Two of the four conditions are difficult to summarise with accuracy: the first condition has equal reward probabilities for all symbols (so there is no objectively correct response), and the fourth condition includes a reversal after 13 trials. We therefore plot the probability of choosing right instead of accuracy, with conditions in rows:
 
@@ -1258,17 +1259,17 @@ base_diff_cf_sm  <- make_base('utility', 'lin', kernel = kernel_cf_sm,
 trend_cf_sm <- make_trend(base_diff_cf_sm)
 
 design_cf_sm <- design(model     = multinomial_logit,
-                    data      = dat,
-                    functions = c(chosen        = function(x) x$R == x$lR,
-                                  reward_left   = feedback_generator_left,
-                                  reward_right  = feedback_generator_right,
-                                  make_covariate_columns_cf),
-                    formula   = list(utility ~ 1,
-                                     utility.alphaPos ~ chosen, utility.alphaNeg ~ chosen,
-                                     utility.q0 ~ 1),
-                    trend     = trend_cf_sm,
-                    constants = c('utility.q0' = 0, 'utility' = 0),
-                    report_p_vector = FALSE)
+                       data      = dat,
+                        functions = c(chosen        = function(x) x$R == x$lR,
+                                      reward_left   = feedback_generator_left,
+                                      reward_right  = feedback_generator_right,
+                                      make_covariate_columns_cf),
+                        formula   = list(utility ~ 1,
+                                         utility.alphaPos ~ chosen, utility.alphaNeg ~ chosen,
+                                         utility.q0 ~ 1),
+                        trend     = trend_cf_sm,
+                        constants = c('utility.q0' = 0, 'utility' = 0),
+                        report_p_vector = FALSE)
 ```
 Which we can combine with the data and fit as usual:
 ```{r confirmation-softmax-fit-code, eval=FALSE}
@@ -1322,7 +1323,7 @@ print_par("3x3")
 plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE)
 ```
 
-#### In both cases - can we estimate q0?
+### In both cases - can we estimate q0?
 ```{r confirmation-softmax-design_q0}
 design_cf_sm_q0 <- design(model     = multinomial_logit,
                           data      = dat,
@@ -1435,3 +1436,154 @@ pp$choice <- pp$R=='right'
 print_par("3x3")
 plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE)
 ```
+
+## Work in progress: Dealing with extremely fast/slow RTs. This only works on the in-development cens_trunc2 branch.
+So far, I've blindly removed all trials with rt < 0.15s. This is fairly standard practice in EAM modelling, because trials with such fast responses are unlikely to reflect a genuine choice process, but rather a fast guess. Hence, the model is misspecified, warranting their removal. However, in instrumental learning tasks, participants then *do* get to see the resulting feedback, and even if their choice process is not an EAM, they could still learn normally from the feedback. So ideally, we do want to keep the trial's feedback in there and have it contribute to the learning model, only excluding the RT from the choice model's likelihood. We can do this as follows:
+```{r missingness}
+# re-load dataset 1 from Miletić et al. (2021)
+load('./data/miletic2021/data_exp1.RData')
+
+# Exclude participants that are marked 'excl' by Miletic et al. (2021)
+dat <- dat[!dat$excl, ]
+#dat <- dat[!is.na(dat$rt),]  <- don't remove NA RT values!
+dat$rt <- round(dat$rt, 3)  # round RTs to milliseconds
+
+# This is new: all trials that have implausible or NA RT values, get a missingness = 0 column (NA otherwise)
+dat$missingness <- NA
+dat$missingness[is.na(dat$rt)] <- 0
+dat$missingness[dat$rt < 0.15] <- 0
+# note that these are only 22 trials in the present data.....
+
+dat$subjects <- as.factor(dat$pp)
+dat$R        <- factor(dat$choiceDirection, levels = c('left', 'right'))
+dat$S        <- factor(ifelse(dat$p_win_left > dat$p_win_right, 'left', 'right'),
+                        levels = c('left', 'right'))
+dat <- dat[!is.na(dat$R),] # *DO* remove values without a choice ==> no feedback was given
+
+# Recode reward to [0, 1]
+dat$reward  <- dat$reward / 100
+# Symbol presented on the left and right on each trial
+dat$s_left  <- paste0('s_', dat$appear_left)
+dat$s_right <- paste0('s_', dat$appear_right)
+# We also keep track of the 'exposure' - i.e., the number of times a stimulus pair has been presented. This is not required for fitting, but facilitates plotting later on.
+dat$exposure <- get_exposure(dat)
+dat$p_left  <- dat$p_win_left
+dat$p_right <- dat$p_win_right
+dat <- dat[, c('subjects', 'S', 'R', 'rt', 'reward',
+               's_left', 's_right', 'p_left', 'p_right', 'exposure', 'missingness')]
+```
+
+We take the same functions for covariate generation, feedback generation, and covariate coding as above:
+```{r missingness-functions}
+# Generator: returns a function that extracts the reward for one specific symbol
+covariate_column_generator <- function(col_name) {
+  f <- function(data) {
+    RS <- ifelse(data$R == 'left', data$s_left, data$s_right)
+    out <- rep(NA, nrow(data))
+    out[(RS == col_name)] <- data$reward[(RS == col_name)]
+    out
+  }
+  return(f)
+}
+
+all_symbols <- unique(c(dat$s_left, dat$s_right))
+make_covariate_columns <- setNames(
+  lapply(all_symbols, covariate_column_generator),
+  all_symbols
+)
+
+feedback_generator <- function(d) {
+  if ("lR" %in% names(d) && nlevels(d$lR) > 1) {
+    # Race model: dadm has one row per accumulator per trial.
+    # Subset to one row per trial, generate rewards, then repeat
+    # to match the full dadm length.
+    data     <- d[d$lR == levels(d$lR)[1], ]
+    p_chosen <- ifelse(data$R == 'left', data$p_left, data$p_right)
+    rep(rbinom(nrow(data), 1, p_chosen), each = nlevels(d$lR))
+  } else {
+    # DDM: dadm has one row per trial — generate rewards directly.
+    p_chosen <- ifelse(d$R == 'left', d$p_left, d$p_right)
+    rbinom(nrow(d), 1, p_chosen)
+  }
+}
+
+make_RL_ARD_difference <- function(dadm, cov_names) {
+  lS      <- ifelse(dadm$lR == 'left', dadm$s_left,  dadm$s_right)
+  lSother <- ifelse(dadm$lR == 'left', dadm$s_right, dadm$s_left)
+  # +1 for own symbol, -1 for competing symbol (cf. RL-DDM: +1 right, -1 left)
+  codinglS      <- sapply(cov_names, function(col) as.numeric(lS      == col))
+  codinglSother <- sapply(cov_names, function(col) as.numeric(lSother == col))
+  codinglS - codinglSother
+}
+
+make_RL_ARD_sum <- function(dadm, cov_names) {
+  lS      <- ifelse(dadm$lR == 'left', dadm$s_left,  dadm$s_right)
+  lSother <- ifelse(dadm$lR == 'left', dadm$s_right, dadm$s_left)
+  # +1 for both own and competing symbol
+  codinglS      <- sapply(cov_names, function(col) as.numeric(lS      == col))
+  codinglSother <- sapply(cov_names, function(col) as.numeric(lSother == col))
+  codinglS + codinglSother
+}
+
+```
+
+And create the design as above as well:
+```{r missingness-design}
+delta_kernel_ard <- make_kernel(cov_names = all_symbols, type = 'delta')
+
+base_diff <- make_base(target_parameter = 'v',
+                       type             = 'lin',
+                       kernel           = delta_kernel_ard,
+                       phase            = 'posttransform',
+                       coding           = list(d = make_RL_ARD_difference))
+base_sum  <- make_base(target_parameter = 'v',
+                       type             = 'lin',
+                       kernel           = delta_kernel_ard,
+                       phase            = 'posttransform',
+                       coding           = list(s = make_RL_ARD_sum))
+trend_ard <- make_trend(base_diff, base_sum)
+
+design_ARD <- design(model           = RDM,
+                     data            = dat,
+                     functions       = c(reward=feedback_generator,
+                                         make_covariate_columns),
+                     matchfun        = function(d) d$S == d$lR,
+                     formula         = list(B ~ 1, v ~ 1, t0 ~ 1),
+                     trend           = trend_ard,
+                     constants       = c('v.q0' = 0),
+                     report_p_vector = FALSE)
+
+emc_rlard <- make_emc(dat, design_ARD)
+```
+
+Which we should now be able to fit:
+```{r missingness-fit-code, eval=FALSE}
+emc_rlard <- fit(emc_rlard)
+check(emc_rlard)
+```
+
+```{r missingness-fit-run, include=FALSE, dependson="missingness-design"}
+rlard_fn <- "./cache/exp1_rlard_missingness.RData"
+if (file.exists(rlard_fn)) {
+  emc_rlard <- EMC2:::loadRData(rlard_fn)
+} else {
+  emc_rlard <- make_emc(dat, design_ARD)
+  emc_rlard <- fit(emc_rlard, cores_per_chain = 5, fileName = rlard_fn)
+  emc_rlard <- add_ICs_MLL(emc_rlard)
+  save(emc_rlard, file = rlard_fn)
+}
+```
+
+```{r missingness-check-run, echo=FALSE, fig.width=fig_w[["1x3"]], fig.height=fig_h[["1x3"]], fig.cap=cap, dependson="missingness-fit-run"}
+par(mar = c(3, 3, 1.5, 0.5))  # opens device in this chunk before check() runs
+invisible(capture.output({ckc <- check(emc_rlard, plot_worst = FALSE, set.par=FALSE)}))
+subn <- which.max(lapply(ckc$alpha, function(x) max(x[1, ])))
+cap <- paste0(
+  "Trace plots of the sampled parameters with highest Rhat values (i.e., worst convergence) at the group-level mean (left, mu), the group-level variance (middle, sigma2), and the subject-level (alpha; here, subject ",
+  subn,
+  "). ESS = effective sample size."
+)
+print_par("1x3")
+check(emc_rlard, set.par = FALSE)
+```
+
