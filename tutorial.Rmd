@@ -3,6 +3,10 @@ title: "A step-by-step guide to reinforcement learning evidence accumulation mod
 author: "Steven Miletić, Niek Stevenson, Luke Strickland, Andrew Heathcote"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    highlight: pygments
   bookdown::pdf_document2:
     latex_engine: xelatex
     highlight: pygments
@@ -10,10 +14,6 @@ output:
     toc: false
     includes:
       in_header: preamble.tex
-  bookdown::html_document2:
-    toc: true
-    toc_float: true
-    highlight: pygments
 link-citations: true
 bibliography: bibliography.bib
 ---
@@ -341,30 +341,26 @@ Note that the column names `reward`, `s_left`, `s_right`, `p_left`, and `p_right
 The next step is to create one column per symbol, indicating the reward received when that symbol was chosen (and `NA` otherwise). An obvious approach would be to add these columns directly to the data. However, *EMC2* treats all non-`rt`, non-`R` columns as fixed design factors. This is a problem for simulation: when generating posterior predictives, the covariate columns must be recomputed from the *simulated* choices and rewards, not copied from the observed data. We therefore define *functions* that construct the covariate columns on the fly. *EMC2* re-applies these functions after each simulated trial, ensuring that Q-values track simulated rather than observed behaviour:
 
 ```{r define-covariates}
-# Generator: returns a function that extracts the reward for one specific symbol
-covariate_column_generator <- function(col_name) {
-  f <- function(data) {
-    RS <- ifelse(data$R == 'left', data$s_left, data$s_right)
-    out <- rep(NA, nrow(data))
-    out[(RS == col_name)] <- data$reward[(RS == col_name)]
-    out
-  }
-  return(f)
+make_covariate_columns <- function(data) {
+  RS <- ifelse(data$R == 'left', data$s_left, data$s_right)
+  all_symbols <- unique(c(data$s_left, data$s_right))
+  setNames(
+    lapply(all_symbols, function(sym) {
+      out <- rep(NA, nrow(data))
+      out[RS == sym] <- data$reward[RS == sym]
+      out
+    }),
+    all_symbols
+  )
 }
-
-all_symbols <- unique(c(dat$s_left, dat$s_right))
-make_covariate_columns <- setNames(
-  lapply(all_symbols, covariate_column_generator),
-  all_symbols
-)
 ```
 
-`make_covariate_columns` is now a named list of functions, one per symbol. We pass it to `design()` via the `functions` argument, which tells *EMC2* to apply them to the data-augmented design matrix (`dadm`) at construction time — and again during simulation:
+`make_covariate_columns` a function that returns one covariate per symbol. We pass it to `design()` via the `functions` argument, which tells *EMC2* to apply them to the data-augmented design matrix (`dadm`) at construction time — and again during simulation:
 
 ```{r design-baseline}
 design_RDM <- design(model        = RDM,
                      data         = dat,
-                     functions    = make_covariate_columns,
+                     functions    = list(covs=make_covariate_columns),
                      matchfun     = function(d) d$S == d$lR,
                      formula      = list(B ~ 1, v ~ 1, t0 ~ 1),
                      report_p_vector = FALSE)
@@ -380,7 +376,8 @@ The symbol columns are now present in the `dadm`, with `NA` wherever a symbol wa
 Trialwise covariates are handled through `trend` objects in *EMC2*, exactly as in the dynamic EAM tutorial. The kernel specifies the update rule applied to the covariate — here, the delta rule — and the base specifies which decision parameter is informed by the result and how. Since we want Q-values to influence drift rates linearly on the natural scale, we use a `lin` base with `phase = "posttransform"`:
 
 ```{r delta-rule}
-delta_kernel <- make_kernel(cov_names = all_symbols, type = 'delta')
+all_symbols <- unique(c(dat$s_left, dat$s_right))
+delta_kernel <- make_kernel(cov_names=all_symbols, type = 'delta')
 lin_base     <- make_base(target_parameter = 'v',
                           type             = 'lin',
                           kernel           = delta_kernel,
@@ -424,7 +421,7 @@ trend <- make_trend(lin_base)
 
 design_RDM <- design(model           = RDM,
                      data            = dat,
-                     functions       = make_covariate_columns,
+                     functions       = list(covs=make_covariate_columns),
                      matchfun        = function(d) d$S == d$lR,
                      formula         = list(B ~ 1, v ~ 1, t0 ~ 1),
                      trend           = trend,
@@ -460,7 +457,7 @@ feedback_generator <- function(d) {
 design_RDM <- design(model           = RDM,
                      data            = dat,
                      functions       = c(reward=feedback_generator,
-                                         make_covariate_columns),
+                                         covs=make_covariate_columns),
                      matchfun        = function(d) d$S == d$lR,
                      formula         = list(B ~ 1, v ~ 1, t0 ~ 1),
                      trend           = trend,
@@ -534,7 +531,7 @@ Supplying the fitted model to the `predict()` function generates posterior predi
 ```{r rlrd-pp-code, eval=FALSE}
 pp_rlrd <- predict(emc_rlrd)
 
-plot_learning(dat=dat_rlrd, pp=pp_rlrd, x.var='exposure', n.breaks=10)
+plot_learning(dat=dat, pp=pp_rlrd, x.var='exposure', n.breaks=10)
 ```
 
 ```{r rlrd-pp-run, echo=FALSE, fig.width=fig_w[["1x3"]], fig.height=fig_h[["1x3"]], fig.cap=cap, dependson="rlrd-fit-run"}
@@ -570,7 +567,7 @@ trend_ddm <- make_trend(lin_base_ddm)
 design_DDM <- design(model           = DDM,
                      data            = dat,
                      functions       = c(reward=feedback_generator,
-                                         make_covariate_columns),
+                                         covs=make_covariate_columns),
                      matchfun        = function(d) d$S == d$lR,
                      formula         = list(a ~ 1, v ~ 1, t0 ~ 1),
                      trend           = trend_ddm,
@@ -677,7 +674,7 @@ trend_ard <- make_trend(base_diff, base_sum)
 design_ARD <- design(model           = RDM,
                      data            = dat,
                      functions       = c(reward=feedback_generator,
-                                         make_covariate_columns),
+                                         covs=make_covariate_columns),
                      matchfun        = function(d) d$S == d$lR,
                      formula         = list(B ~ 1, v ~ 1, t0 ~ 1),
                      trend           = trend_ard,
@@ -816,10 +813,10 @@ dat <- dat[, c('subjects', 'S', 'R', 'rt', 'reward', 's_left', 's_right', 'p_lef
 print(head(dat))
 
 all_symbols_sat <- unique(c(dat$s_left, dat$s_right))
-make_covariate_columns_sat <- setNames(
-  lapply(all_symbols_sat, covariate_column_generator),
-  all_symbols_sat
-)
+# make_covariate_columns_sat <- setNames(
+#   lapply(all_symbols_sat, covariate_column_generator),
+#   all_symbols_sat
+# )
 ```
 
 The RL component is identical to the RL-ARD in Section \@ref(sec:rlard): a delta kernel with difference and sum bases, and the feedback generator. The only change is in the model formula, where `B` and `v` are allowed to vary with `cue`. We use a single-column contrast matrix `ADmat` that codes the accuracy-minus-speed difference, so the estimated effect directly reflects the change in each parameter when moving from the speed to the accuracy cue:
@@ -841,7 +838,7 @@ ADmat <- matrix(c(1, -1), ncol = 1,
 design_sat_full <- design(model      = RDM,
                           data       = dat,
                           functions  = c(reward=feedback_generator,
-                                         make_covariate_columns_sat),
+                                         covs=make_covariate_columns),
                           matchfun   = function(d) d$S == d$lR,
                           contrasts  = list(cue = ADmat),
                           formula    = list(B ~ cue, v ~ cue, t0 ~ 1),
@@ -856,7 +853,7 @@ We also specify a threshold-only model, in which `v` is fixed across cues, to te
 design_sat_B <- design(model      = RDM,
                        data       = dat,
                        functions  = c(reward=feedback_generator,
-                                      make_covariate_columns_sat),
+                                      covs=make_covariate_columns),
                        matchfun   = function(d) d$S == d$lR,
                        contrasts  = list(cue = ADmat),
                        formula    = list(B ~ cue, v ~ 1, t0 ~ 1),
@@ -987,10 +984,7 @@ In *EMC2*, this is implemented by using the `'delta2lr'` kernel type, which intr
 ```{r 2lr-data-design}
 load('./data/lefebvre2017/lefebvre_exp1.RData')
 dat$exposure <- get_exposure(dat)
-
 all_symbols <- unique(c(dat$s_left, dat$s_right))
-make_covariate_columns <- setNames(lapply(all_symbols,
-                                          covariate_column_generator), all_symbols)
 
 kernel <- make_kernel(all_symbols, 'delta2lr')
 base1 <- make_base('v', 'lin', kernel=kernel, phase='posttransform', coding=list('d'=make_RL_ARD_difference))
@@ -999,7 +993,7 @@ trend <- make_trend(base1, base2)
 
 design_RDM <- design(model=RDM,
                      data=dat,
-                     functions=make_covariate_columns,
+                     functions=list(covs=make_covariate_columns),
                      formula=list(B ~ 1, v ~ 1, t0 ~ 1),
                      trend=trend,
                      constants=c('v.q0'=0),
@@ -1057,19 +1051,16 @@ $$
 This allows a prior to be placed directly on $$\alpha_\text{diff}$$ and yields participant-wise estimates of the asymmetry. In *EMC2*, linear reparameterisations of kernel parameters are specified via the `parameter_design` argument to `design()`. The reparameterisation matrix maps the sampled parameters (`alphaMean`, `alphaDiff`) to the kernel parameters (`v.alphaPos`, `v.alphaNeg`):
 
 ```{r 2lr-reparam-design}
-parameter_design <- matrix(c(1,  0.5,
-                             1, -0.5),
-                           nrow = 2, byrow = TRUE,
-                           dimnames = list(c("v.alphaPos", "v.alphaNeg"),
-                                           c("alphaMean",  "alphaDiff")))
+parameter_design <- list(v.alphaPos~alphaMean+0.5*alphaDiff,
+                         v.alphaNeg~alphaMean-0.5*alphaDiff)
 
 design_2lr_reparam <- design(model            = RDM,
                              data             = dat,
-                             functions        = make_covariate_columns,
-                             formula          = list(B ~ 1, v ~ 1, t0 ~ 1),
+                             functions        = list(covs=make_covariate_columns),
+                             formula          = list(B ~ 1, v ~ 1, t0 ~ 1, alphaMean~1, alphaDiff~1),
                              trend            = trend,
                              constants        = c('v.q0' = 0),
-                             parameter_design = list(weights = parameter_design),
+                             parameter_design = parameter_design,
                              report_p_vector  = FALSE)
 
 emc_2lr_reparam <- make_emc(dat, design_2lr_reparam)
@@ -1130,40 +1121,37 @@ load('./data/palminteri2017/palminteri2017_exp2.RData')
 all_symbols_cf <- unique(c(dat$s_left, dat$s_right))
 all_symbols_cf <- all_symbols_cf[order(as.numeric(gsub('[^0-9]', '', all_symbols_cf)))]
 
-# Covariate column generator: routes factual/counterfactual feedback to the
-# correct accumulator based on lR (left accumulator gets reward_left, etc.)
-covariate_column_generator_cf <- function(col_name) {
-  function(data) {
-    out      <- rep(NA, nrow(data))
-    is_left  <- data$lR == "left"  & data$s_left  == col_name
-    is_right <- data$lR == "right" & data$s_right == col_name
-    out[is_left]  <- data$reward_left[is_left]
-    out[is_right] <- data$reward_right[is_right]
-    out
-  }
+make_covariate_columns_cf <- function(data) {
+  all_symbols_cf <- unique(c(data$s_left, data$s_right))
+  setNames(
+    lapply(all_symbols_cf, function(sym) {
+      out <- rep(NA, nrow(data))
+      is_left  <- data$lR == "left"  & data$s_left  == sym
+      is_right <- data$lR == "right" & data$s_right == sym
+      out[is_left]  <- data$reward_left[is_left]
+      out[is_right] <- data$reward_right[is_right]
+      out
+    }),
+    all_symbols_cf
+  )
 }
-
-make_covariate_columns_cf <- setNames(
-  lapply(all_symbols_cf, covariate_column_generator_cf),
-  all_symbols_cf
-)
 
 # Feedback generators for simulation: one per side
-feedback_generator_left <- function(d) {
+feedback_generator <- function(d) {
   data <- d[d$lR == levels(d$lR)[1], ]
-  rep(rbinom(nrow(data), 1, data$p_left) * 2 - 1, each = nlevels(d$lR))
-}
-
-feedback_generator_right <- function(d) {
-  data <- d[d$lR == levels(d$lR)[1], ]
-  rep(rbinom(nrow(data), 1, data$p_right) * 2 - 1, each = nlevels(d$lR))
+  n_acc <- nlevels(d$lR)
+  list(
+    reward_left  = rep(rbinom(nrow(data), 1, data$p_left)  * 2 - 1, each = n_acc),
+    reward_right = rep(rbinom(nrow(data), 1, data$p_right) * 2 - 1, each = n_acc)
+  )
 }
 ```
 
 We can use these new functions in an RL-ARD as follows: 
 
 ```{r confirmation-design, dependson="confirmation-data-functions"}
-# at_mode="push" needs some explanation
+# ToDo -- at_mode="push" needs some explanation
+# and basically a redesign internally of how at='' is handled
 kernel_cf    <- make_kernel(all_symbols_cf, 'delta2lr', at_mode = 'push')
 base_diff_cf <- make_base('v', 'lin', kernel = kernel_cf,
                           coding = list(d = make_RL_ARD_difference),
@@ -1175,10 +1163,9 @@ trend_cf <- make_trend(base_diff_cf, base_sum_cf)
 
 design_cf <- design(model     = RDM,
                     data      = dat,
-                    functions = c(chosen        = function(x) x$R == x$lR,
-                                  reward_left   = feedback_generator_left,
-                                  reward_right  = feedback_generator_right,
-                                  make_covariate_columns_cf),
+                    functions = c(chosen = function(x) x$R == x$lR,
+                                  rewards = feedback_generator,
+                                  covs = make_covariate_columns_cf),
                     formula   = list(B ~ 1, v ~ 1, t0 ~ 1,
                                      v.alphaPos ~ chosen, v.alphaNeg ~ chosen,
                                      v.q0 ~ 1),
@@ -1261,9 +1248,8 @@ trend_cf_sm <- make_trend(base_diff_cf_sm)
 design_cf_sm <- design(model     = multinomial_logit,
                        data      = dat,
                         functions = c(chosen        = function(x) x$R == x$lR,
-                                      reward_left   = feedback_generator_left,
-                                      reward_right  = feedback_generator_right,
-                                      make_covariate_columns_cf),
+                                      rewards = feedback_generator,
+                                      covs = make_covariate_columns_cf),
                         formula   = list(utility ~ 1,
                                          utility.alphaPos ~ chosen, utility.alphaNeg ~ chosen,
                                          utility.q0 ~ 1),
@@ -1328,9 +1314,8 @@ plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1)
 design_cf_sm_q0 <- design(model     = multinomial_logit,
                           data      = dat,
                           functions = c(chosen        = function(x) x$R == x$lR,
-                                        reward_left   = feedback_generator_left,
-                                        reward_right  = feedback_generator_right,
-                                        make_covariate_columns_cf),
+                                        rewards = feedback_generator,
+                                        covs = make_covariate_columns_cf),
                           formula   = list(utility ~ 1,
                                            utility.alphaPos ~ chosen, utility.alphaNeg ~ chosen,
                                            utility.q0 ~ 1),
@@ -1342,9 +1327,8 @@ design_cf_sm_q0 <- design(model     = multinomial_logit,
 design_cf_q0 <- design(model     = RDM,
                       data      = dat,
                       functions = c(chosen        = function(x) x$R == x$lR,
-                                    reward_left   = feedback_generator_left,
-                                    reward_right  = feedback_generator_right,
-                                    make_covariate_columns_cf),
+                                      rewards = feedback_generator,
+                                      covs = make_covariate_columns_cf),
                       formula   = list(B ~ 1, v ~ 1, t0 ~ 1,
                                        v.alphaPos ~ chosen, v.alphaNeg ~ chosen,
                                        v.q0 ~ 1),
@@ -1471,26 +1455,24 @@ dat$p_left  <- dat$p_win_left
 dat$p_right <- dat$p_win_right
 dat <- dat[, c('subjects', 'S', 'R', 'rt', 'reward',
                's_left', 's_right', 'p_left', 'p_right', 'exposure', 'missingness')]
+all_symbols <- unique(c(dat$s_left, dat$s_right))
+
 ```
 
 We take the same functions for covariate generation, feedback generation, and covariate coding as above:
 ```{r missingness-functions}
-# Generator: returns a function that extracts the reward for one specific symbol
-covariate_column_generator <- function(col_name) {
-  f <- function(data) {
-    RS <- ifelse(data$R == 'left', data$s_left, data$s_right)
-    out <- rep(NA, nrow(data))
-    out[(RS == col_name)] <- data$reward[(RS == col_name)]
-    out
-  }
-  return(f)
+make_covariate_columns <- function(data) {
+  RS <- ifelse(data$R == 'left', data$s_left, data$s_right)
+  all_symbols <- unique(c(data$s_left, data$s_right))
+  setNames(
+    lapply(all_symbols, function(sym) {
+      out <- rep(NA, nrow(data))
+      out[RS == sym] <- data$reward[RS == sym]
+      out
+    }),
+    all_symbols
+  )
 }
-
-all_symbols <- unique(c(dat$s_left, dat$s_right))
-make_covariate_columns <- setNames(
-  lapply(all_symbols, covariate_column_generator),
-  all_symbols
-)
 
 feedback_generator <- function(d) {
   if ("lR" %in% names(d) && nlevels(d$lR) > 1) {
@@ -1546,7 +1528,7 @@ trend_ard <- make_trend(base_diff, base_sum)
 design_ARD <- design(model           = RDM,
                      data            = dat,
                      functions       = c(reward=feedback_generator,
-                                         make_covariate_columns),
+                                        covs=make_covariate_columns),
                      matchfun        = function(d) d$S == d$lR,
                      formula         = list(B ~ 1, v ~ 1, t0 ~ 1),
                      trend           = trend_ard,
