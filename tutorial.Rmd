@@ -3,10 +3,6 @@ title: "A step-by-step guide to reinforcement learning evidence accumulation mod
 author: "Steven Miletić, Niek Stevenson, Luke Strickland, Andrew Heathcote"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
-  bookdown::html_document2:
-    toc: true
-    toc_float: true
-    highlight: pygments
   bookdown::pdf_document2:
     latex_engine: xelatex
     highlight: pygments
@@ -14,6 +10,10 @@ output:
     toc: false
     includes:
       in_header: preamble.tex
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    highlight: pygments
 link-citations: true
 bibliography: bibliography.bib
 ---
@@ -140,7 +140,7 @@ First, let's load the required packages and data:
 
 ```{r load-data}
 # TMP -- install the right branch
-# remotes::install_github("ampl-psych/EMC2@dev", dependencies=TRUE, Ncpus=8);.rs.restartR()
+# remotes::install_github("ampl-psych/EMC2@trend_masks", dependencies=TRUE, Ncpus=8);.rs.restartR()
 # END TMP
 library(EMC2)
 set.seed(1) # for reproducibility
@@ -535,7 +535,7 @@ plot_learning(dat=dat, pp=pp_rlrd, x.var='exposure', n.breaks=10)
 ```
 
 ```{r rlrd-pp-run, echo=FALSE, fig.width=fig_w[["1x3"]], fig.height=fig_h[["1x3"]], fig.cap=cap, dependson="rlrd-fit-run"}
-pp_rlrd <- predict(emc_rlrd, n_cores=24)
+pp_rlrd <- predict(emc_rlrd, n_cores=25)
 
 cap <- "Learning plots of the RL-RD. Left panel shows accuracy over exposure (i.e., the number of times a stimulus pair has been seen), binned into 10 bins. Black lines are data, red shaded areas are 90% credible interval of the model's posterior predictives. Middle and right panels show correct and error RT distributions, respectively. The lower, middle, and top lines correspond to the 10th, 50th, and 90th RT quantiles."
 print_par("1x3")
@@ -1150,9 +1150,7 @@ feedback_generator <- function(d) {
 We can use these new functions in an RL-ARD as follows: 
 
 ```{r confirmation-design, dependson="confirmation-data-functions"}
-# ToDo -- at_mode="push" needs some explanation
-# and basically a redesign internally of how at='' is handled
-kernel_cf    <- make_kernel(all_symbols_cf, 'delta2lr', at_mode = 'push')
+kernel_cf    <- make_kernel(all_symbols_cf, 'delta2lr')
 base_diff_cf <- make_base('v', 'lin', kernel = kernel_cf,
                           coding = list(d = make_RL_ARD_difference),
                           phase  = 'posttransform')
@@ -1161,17 +1159,17 @@ base_sum_cf  <- make_base('v', 'lin', kernel = kernel_cf,
                           phase  = 'posttransform')
 trend_cf <- make_trend(base_diff_cf, base_sum_cf)
 
-design_cf <- design(model     = RDM,
-                    data      = dat,
-                    functions = c(chosen = function(x) x$R == x$lR,
-                                  rewards = feedback_generator,
-                                  covs = make_covariate_columns_cf),
-                    formula   = list(B ~ 1, v ~ 1, t0 ~ 1,
-                                     v.alphaPos ~ chosen, v.alphaNeg ~ chosen,
-                                     v.q0 ~ 1),
-                    trend     = trend_cf,
-                    constants = c('v.q0' = 0),
-                    report_p_vector = FALSE)
+design_cf <- design(model=RDM,
+                    data=dat,
+                    functions=c(chosen=function(x) x$R == x$lR,
+                                rewards=feedback_generator,
+                                covs=make_covariate_columns_cf),
+                    formula=list(B ~ 1, v ~ 1, t0 ~ 1,
+                                 v.alphaPos ~ chosen, v.alphaNeg ~ chosen,
+                                 v.q0 ~ 1),
+                    trend=trend_cf,
+                    constants=c('v.q0'=0),
+                    report_p_vector=FALSE)
 
 emc_cf <- make_emc(dat, design_cf)
 ```
@@ -1218,7 +1216,7 @@ cap <- paste0(
   "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles."
 )
 
-pp <- predict(emc_cf, n_cores=24, shrink2bound=TRUE)
+pp <- predict(emc_cf, n_cores=25, shrink2bound=TRUE)
 dat <- get_data(emc_cf)
 dat$choice <- dat$R=='right'
 pp$choice <- pp$R=='right'
@@ -1239,23 +1237,22 @@ The credible intervals show the expected interaction: for chosen options, the po
 In case you want to use softmax, here's an example below. Note that convergence properties tend to be worse than with RL-EAMs. The model is called "multinomial logit" rather than softmax. Softmax is a function with the input termed "utility" within EMC2. Therefore, we need to have the base affect the "utility" parameter, and make sure to set the intercept of utility to a constant of 0.
 
 ```{r confirmation-softmax-design, dependson="confirmation-data-functions"}
-kernel_cf_sm    <- make_kernel(all_symbols_cf, 'delta2lr', at_mode = 'push')
+kernel_cf_sm  <- make_kernel(all_symbols_cf, 'delta2lr')
 base_diff_cf_sm  <- make_base('utility', 'lin', kernel = kernel_cf_sm,
                           coding = list(d = make_RL_ARD_difference),
                           phase  = 'posttransform')
 trend_cf_sm <- make_trend(base_diff_cf_sm)
 
-design_cf_sm <- design(model     = multinomial_logit,
-                       data      = dat,
-                        functions = c(chosen        = function(x) x$R == x$lR,
-                                      rewards = feedback_generator,
-                                      covs = make_covariate_columns_cf),
-                        formula   = list(utility ~ 1,
-                                         utility.alphaPos ~ chosen, utility.alphaNeg ~ chosen,
-                                         utility.q0 ~ 1),
-                        trend     = trend_cf_sm,
-                        constants = c('utility.q0' = 0, 'utility' = 0),
-                        report_p_vector = FALSE)
+design_cf_sm <- design(model=multinomial_logit,
+                       data=dat,
+                       functions=c(chosen = function(x) x$R == x$lR,
+                                   rewards = feedback_generator,
+                                   covs = make_covariate_columns_cf),
+                       formula=list(utility ~ 1,utility.alphaPos ~ chosen, 
+                                    utility.alphaNeg ~ chosen, utility.q0 ~ 1),
+                       trend=trend_cf_sm,
+                       constants=c('utility.q0' = 0, 'utility' = 0),
+                       report_p_vector=FALSE)
 ```
 Which we can combine with the data and fit as usual:
 ```{r confirmation-softmax-fit-code, eval=FALSE}
@@ -1300,7 +1297,7 @@ cap <- paste0(
   "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles."
 )
 
-pp <- predict(emc_cf_sm, n_cores=24, shrink2bound=TRUE)
+pp <- predict(emc_cf_sm, n_cores=25, shrink2bound=TRUE)
 dat <- get_data(emc_cf_sm)
 dat$choice <- dat$R=='right'
 pp$choice <- pp$R=='right'
@@ -1309,263 +1306,263 @@ print_par("3x3")
 plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE)
 ```
 
-### In both cases - can we estimate q0?
-```{r confirmation-softmax-design_q0}
-design_cf_sm_q0 <- design(model     = multinomial_logit,
-                          data      = dat,
-                          functions = c(chosen        = function(x) x$R == x$lR,
-                                        rewards = feedback_generator,
-                                        covs = make_covariate_columns_cf),
-                          formula   = list(utility ~ 1,
-                                           utility.alphaPos ~ chosen, utility.alphaNeg ~ chosen,
-                                           utility.q0 ~ 1),
-                          transform = list(func=c('utility.q0'='pnorm'), lower=c('utility.q0'=-1)),
-                          trend     = trend_cf_sm,
-                          constants = c('utility' = 0),
-                          report_p_vector = FALSE)
+<!-- ### In both cases - can we estimate q0? -->
+<!-- ```{r confirmation-softmax-design_q0} -->
+<!-- design_cf_sm_q0 <- design(model     = multinomial_logit, -->
+<!--                           data      = dat, -->
+<!--                           functions = c(chosen        = function(x) x$R == x$lR, -->
+<!--                                         rewards = feedback_generator, -->
+<!--                                         covs = make_covariate_columns_cf), -->
+<!--                           formula   = list(utility ~ 1, -->
+<!--                                            utility.alphaPos ~ chosen, utility.alphaNeg ~ chosen, -->
+<!--                                            utility.q0 ~ 1), -->
+<!--                           transform = list(func=c('utility.q0'='pnorm'), lower=c('utility.q0'=-1)), -->
+<!--                           trend     = trend_cf_sm, -->
+<!--                           constants = c('utility' = 0), -->
+<!--                           report_p_vector = FALSE) -->
 
-design_cf_q0 <- design(model     = RDM,
-                      data      = dat,
-                      functions = c(chosen        = function(x) x$R == x$lR,
-                                      rewards = feedback_generator,
-                                      covs = make_covariate_columns_cf),
-                      formula   = list(B ~ 1, v ~ 1, t0 ~ 1,
-                                       v.alphaPos ~ chosen, v.alphaNeg ~ chosen,
-                                       v.q0 ~ 1),
-                      trend     = trend_cf,
-                      transform = list(func=c('v.q0'='pnorm'), lower=c('v.q0'=-1)),
-#                      constants = c('v.q0' = 0),
-                      report_p_vector = FALSE)
-```
+<!-- design_cf_q0 <- design(model     = RDM, -->
+<!--                       data      = dat, -->
+<!--                       functions = c(chosen        = function(x) x$R == x$lR, -->
+<!--                                       rewards = feedback_generator, -->
+<!--                                       covs = make_covariate_columns_cf), -->
+<!--                       formula   = list(B ~ 1, v ~ 1, t0 ~ 1, -->
+<!--                                        v.alphaPos ~ chosen, v.alphaNeg ~ chosen, -->
+<!--                                        v.q0 ~ 1), -->
+<!--                       trend     = trend_cf, -->
+<!--                       transform = list(func=c('v.q0'='pnorm'), lower=c('v.q0'=-1)), -->
+<!-- #                      constants = c('v.q0' = 0), -->
+<!--                       report_p_vector = FALSE) -->
+<!-- ``` -->
 
-```{r confirmation-q0-fit}
-cf_fn1 <- "./cache/palminteri2017exp2_cf_sm_q0.RData"
-if (file.exists(cf_fn1)) {
-  emc_cf_sm_q0 <- EMC2:::loadRData(cf_fn1)
-} else {
-  emc_cf_sm_q0 <- make_emc(dat, design_cf_sm_q0)
-  emc_cf_sm_q0 <- fit(emc_cf_sm_q0, cores_per_chain = 5, fileName = cf_fn1, max_tries=40)
-  emc_cf_sm_q0 <- add_ICs_MLL(emc_cf_sm_q0)
-  save(emc_cf_sm_q0, file = cf_fn1)
-}
+<!-- ```{r confirmation-q0-fit} -->
+<!-- cf_fn1 <- "./cache/palminteri2017exp2_cf_sm_q0.RData" -->
+<!-- if (file.exists(cf_fn1)) { -->
+<!--   emc_cf_sm_q0 <- EMC2:::loadRData(cf_fn1) -->
+<!-- } else { -->
+<!--   emc_cf_sm_q0 <- make_emc(dat, design_cf_sm_q0) -->
+<!--   emc_cf_sm_q0 <- fit(emc_cf_sm_q0, cores_per_chain = 5, fileName = cf_fn1, max_tries=40) -->
+<!--   emc_cf_sm_q0 <- add_ICs_MLL(emc_cf_sm_q0) -->
+<!--   save(emc_cf_sm_q0, file = cf_fn1) -->
+<!-- } -->
 
-cf_fn2 <- "./cache/palminteri2017exp2_cf_q0.RData"
-if (file.exists(cf_fn2)) {
-  emc_cf_q0 <- EMC2:::loadRData(cf_fn2)
-} else {
-  emc_cf_q0 <- make_emc(dat, design_cf_q0)
-  emc_cf_q0 <- fit(emc_cf_q0, cores_per_chain = 5, fileName = cf_fn2)
-  emc_cf_q0 <- add_ICs_MLL(emc_cf_q0)
-  save(emc_cf_q0, file = cf_fn2)
-}
-```
+<!-- cf_fn2 <- "./cache/palminteri2017exp2_cf_q0.RData" -->
+<!-- if (file.exists(cf_fn2)) { -->
+<!--   emc_cf_q0 <- EMC2:::loadRData(cf_fn2) -->
+<!-- } else { -->
+<!--   emc_cf_q0 <- make_emc(dat, design_cf_q0) -->
+<!--   emc_cf_q0 <- fit(emc_cf_q0, cores_per_chain = 5, fileName = cf_fn2) -->
+<!--   emc_cf_q0 <- add_ICs_MLL(emc_cf_q0) -->
+<!--   save(emc_cf_q0, file = cf_fn2) -->
+<!-- } -->
+<!-- ``` -->
 
-The softmax model has difficulties converging. Just out of curiosity - what do the posteriors of these models imply about q0, and confirmation bias?
-```{r confirmation-q0-credint}
-credint(emc_cf_sm_q0, map=TRUE)
-credint(emc_cf_q0, map=TRUE)
-```
+<!-- The softmax model has difficulties converging. Just out of curiosity - what do the posteriors of these models imply about q0, and confirmation bias? -->
+<!-- ```{r confirmation-q0-credint} -->
+<!-- credint(emc_cf_sm_q0, map=TRUE) -->
+<!-- credint(emc_cf_q0, map=TRUE) -->
+<!-- ``` -->
 
-And quality of fit?
-```{r confirmation-q0-pp-code, eval=FALSE}
-# Softmax
-pp <- predict(emc_cf_sm_q0)
-dat$choice <- dat$R=='right'
-pp$choice <- pp$R=='right'
-pp$rt <- NA
-plot_learning(dat, pp, x.var='exposure', acc.var = 'choice', 
-              acc.ylim = c(0, 1), row.factor = 'condition')
+<!-- And quality of fit? -->
+<!-- ```{r confirmation-q0-pp-code, eval=FALSE} -->
+<!-- # Softmax -->
+<!-- pp <- predict(emc_cf_sm_q0) -->
+<!-- dat$choice <- dat$R=='right' -->
+<!-- pp$choice <- pp$R=='right' -->
+<!-- pp$rt <- NA -->
+<!-- plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  -->
+<!--               acc.ylim = c(0, 1), row.factor = 'condition') -->
 
-# RL-ARD
-pp <- predict(emc_cf_q0)
-dat$choice <- dat$R=='right'
-pp$choice <- pp$R=='right'
-plot_learning(dat, pp, x.var='exposure', acc.var = 'choice', 
-              acc.ylim = c(0, 1), row.factor = 'condition')
-```
-
-
-```{r confirmation-q01-pp-run, echo=FALSE, fig.cap=cap, fig.width=fig_w[["3x3"]], fig.height=fig_h[["3x3"]], dependson=c("confirmation-fit-run")}
-cap <- paste0(
-  "Learning plots of the confirmation bias softmax model with q0 estimated, separately for each condition (rows). ",
-  "Left panel: probability of choosing right as a function of exposure, binned into 10 bins. ",
-  "Black lines are data; red shaded areas are the 95\\% credible interval of the posterior ",
-  "predictives. Middle and right panels: correct and error RT distributions, respectively. ",
-  "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles."
-)
-
-pp <- predict(emc_cf_sm_q0, n_cores=24, shrink2bound=TRUE)
-dat <- get_data(emc_cf_sm_q0)
-dat$choice <- dat$R=='right'
-pp$choice <- pp$R=='right'
-pp$rt <- NA
-print_par("3x3")
-plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE)
-```
+<!-- # RL-ARD -->
+<!-- pp <- predict(emc_cf_q0) -->
+<!-- dat$choice <- dat$R=='right' -->
+<!-- pp$choice <- pp$R=='right' -->
+<!-- plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  -->
+<!--               acc.ylim = c(0, 1), row.factor = 'condition') -->
+<!-- ``` -->
 
 
-```{r confirmation-q02-pp-run, echo=FALSE, fig.cap=cap, fig.width=fig_w[["3x3"]], fig.height=fig_h[["3x3"]], dependson=c("confirmation-fit-run")}
-cap <- paste0(
-  "Learning plots of the confirmation bias RL-ARD model with q0 estimated, separately for each condition (rows). ",
-  "Left panel: probability of choosing right as a function of exposure, binned into 10 bins. ",
-  "Black lines are data; red shaded areas are the 95\\% credible interval of the posterior ",
-  "predictives. Middle and right panels: correct and error RT distributions, respectively. ",
-  "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles."
-)
+<!-- ```{r confirmation-q01-pp-run, echo=FALSE, fig.cap=cap, fig.width=fig_w[["3x3"]], fig.height=fig_h[["3x3"]], dependson=c("confirmation-fit-run")} -->
+<!-- cap <- paste0( -->
+<!--   "Learning plots of the confirmation bias softmax model with q0 estimated, separately for each condition (rows). ", -->
+<!--   "Left panel: probability of choosing right as a function of exposure, binned into 10 bins. ", -->
+<!--   "Black lines are data; red shaded areas are the 95\\% credible interval of the posterior ", -->
+<!--   "predictives. Middle and right panels: correct and error RT distributions, respectively. ", -->
+<!--   "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles." -->
+<!-- ) -->
 
-pp <- predict(emc_cf_q0, n_cores=24, shrink2bound=TRUE)
-dat <- get_data(emc_cf_q0)
-dat$choice <- dat$R=='right'
-pp$choice <- pp$R=='right'
-print_par("3x3")
-plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE)
-```
+<!-- pp <- predict(emc_cf_sm_q0, n_cores=25, shrink2bound=TRUE) -->
+<!-- dat <- get_data(emc_cf_sm_q0) -->
+<!-- dat$choice <- dat$R=='right' -->
+<!-- pp$choice <- pp$R=='right' -->
+<!-- pp$rt <- NA -->
+<!-- print_par("3x3") -->
+<!-- plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE) -->
+<!-- ``` -->
 
-## Work in progress: Dealing with extremely fast/slow RTs. This only works on the in-development cens_trunc2 branch.
-So far, I've blindly removed all trials with rt < 0.15s. This is fairly standard practice in EAM modelling, because trials with such fast responses are unlikely to reflect a genuine choice process, but rather a fast guess. Hence, the model is misspecified, warranting their removal. However, in instrumental learning tasks, participants then *do* get to see the resulting feedback, and even if their choice process is not an EAM, they could still learn normally from the feedback. So ideally, we do want to keep the trial's feedback in there and have it contribute to the learning model, only excluding the RT from the choice model's likelihood. We can do this as follows:
-```{r missingness}
-# re-load dataset 1 from Miletić et al. (2021)
-load('./data/miletic2021/data_exp1.RData')
 
-# Exclude participants that are marked 'excl' by Miletic et al. (2021)
-dat <- dat[!dat$excl, ]
-#dat <- dat[!is.na(dat$rt),]  <- don't remove NA RT values!
-dat$rt <- round(dat$rt, 3)  # round RTs to milliseconds
+<!-- ```{r confirmation-q02-pp-run, echo=FALSE, fig.cap=cap, fig.width=fig_w[["3x3"]], fig.height=fig_h[["3x3"]], dependson=c("confirmation-fit-run")} -->
+<!-- cap <- paste0( -->
+<!--   "Learning plots of the confirmation bias RL-ARD model with q0 estimated, separately for each condition (rows). ", -->
+<!--   "Left panel: probability of choosing right as a function of exposure, binned into 10 bins. ", -->
+<!--   "Black lines are data; red shaded areas are the 95\\% credible interval of the posterior ", -->
+<!--   "predictives. Middle and right panels: correct and error RT distributions, respectively. ", -->
+<!--   "The lower, middle, and upper lines correspond to the 10th, 50th, and 90th RT quantiles." -->
+<!-- ) -->
 
-# This is new: all trials that have implausible or NA RT values, get a missingness = 0 column (NA otherwise)
-dat$missingness <- NA
-dat$missingness[is.na(dat$rt)] <- 0
-dat$missingness[dat$rt < 0.15] <- 0
-# note that these are only 22 trials in the present data.....
+<!-- pp <- predict(emc_cf_q0, n_cores=25, shrink2bound=TRUE) -->
+<!-- dat <- get_data(emc_cf_q0) -->
+<!-- dat$choice <- dat$R=='right' -->
+<!-- pp$choice <- pp$R=='right' -->
+<!-- print_par("3x3") -->
+<!-- plot_learning(dat, pp, x.var='exposure', acc.var = 'choice',  acc.ylim = c(0, 1), row.factor = 'condition_label', set.par=FALSE) -->
+<!-- ``` -->
 
-dat$subjects <- as.factor(dat$pp)
-dat$R        <- factor(dat$choiceDirection, levels = c('left', 'right'))
-dat$S        <- factor(ifelse(dat$p_win_left > dat$p_win_right, 'left', 'right'),
-                        levels = c('left', 'right'))
-dat <- dat[!is.na(dat$R),] # *DO* remove values without a choice ==> no feedback was given
+<!-- ## Work in progress: Dealing with extremely fast/slow RTs. This only works on the in-development cens_trunc2 branch. -->
+<!-- So far, I've blindly removed all trials with rt < 0.15s. This is fairly standard practice in EAM modelling, because trials with such fast responses are unlikely to reflect a genuine choice process, but rather a fast guess. Hence, the model is misspecified, warranting their removal. However, in instrumental learning tasks, participants then *do* get to see the resulting feedback, and even if their choice process is not an EAM, they could still learn normally from the feedback. So ideally, we do want to keep the trial's feedback in there and have it contribute to the learning model, only excluding the RT from the choice model's likelihood. We can do this as follows: -->
+<!-- ```{r missingness} -->
+<!-- # re-load dataset 1 from Miletić et al. (2021) -->
+<!-- load('./data/miletic2021/data_exp1.RData') -->
 
-# Recode reward to [0, 1]
-dat$reward  <- dat$reward / 100
-# Symbol presented on the left and right on each trial
-dat$s_left  <- paste0('s_', dat$appear_left)
-dat$s_right <- paste0('s_', dat$appear_right)
-# We also keep track of the 'exposure' - i.e., the number of times a stimulus pair has been presented. This is not required for fitting, but facilitates plotting later on.
-dat$exposure <- get_exposure(dat)
-dat$p_left  <- dat$p_win_left
-dat$p_right <- dat$p_win_right
-dat <- dat[, c('subjects', 'S', 'R', 'rt', 'reward',
-               's_left', 's_right', 'p_left', 'p_right', 'exposure', 'missingness')]
-all_symbols <- unique(c(dat$s_left, dat$s_right))
+<!-- # Exclude participants that are marked 'excl' by Miletic et al. (2021) -->
+<!-- dat <- dat[!dat$excl, ] -->
+<!-- #dat <- dat[!is.na(dat$rt),]  <- don't remove NA RT values! -->
+<!-- dat$rt <- round(dat$rt, 3)  # round RTs to milliseconds -->
 
-```
+<!-- # This is new: all trials that have implausible or NA RT values, get a missingness = 0 column (NA otherwise) -->
+<!-- dat$missingness <- NA -->
+<!-- dat$missingness[is.na(dat$rt)] <- 0 -->
+<!-- dat$missingness[dat$rt < 0.15] <- 0 -->
+<!-- # note that these are only 22 trials in the present data..... -->
 
-We take the same functions for covariate generation, feedback generation, and covariate coding as above:
-```{r missingness-functions}
-make_covariate_columns <- function(data) {
-  RS <- ifelse(data$R == 'left', data$s_left, data$s_right)
-  all_symbols <- unique(c(data$s_left, data$s_right))
-  setNames(
-    lapply(all_symbols, function(sym) {
-      out <- rep(NA, nrow(data))
-      out[RS == sym] <- data$reward[RS == sym]
-      out
-    }),
-    all_symbols
-  )
-}
+<!-- dat$subjects <- as.factor(dat$pp) -->
+<!-- dat$R        <- factor(dat$choiceDirection, levels = c('left', 'right')) -->
+<!-- dat$S        <- factor(ifelse(dat$p_win_left > dat$p_win_right, 'left', 'right'), -->
+<!--                         levels = c('left', 'right')) -->
+<!-- dat <- dat[!is.na(dat$R),] # *DO* remove values without a choice ==> no feedback was given -->
 
-feedback_generator <- function(d) {
-  if ("lR" %in% names(d) && nlevels(d$lR) > 1) {
-    # Race model: dadm has one row per accumulator per trial.
-    # Subset to one row per trial, generate rewards, then repeat
-    # to match the full dadm length.
-    data     <- d[d$lR == levels(d$lR)[1], ]
-    p_chosen <- ifelse(data$R == 'left', data$p_left, data$p_right)
-    rep(rbinom(nrow(data), 1, p_chosen), each = nlevels(d$lR))
-  } else {
-    # DDM: dadm has one row per trial — generate rewards directly.
-    p_chosen <- ifelse(d$R == 'left', d$p_left, d$p_right)
-    rbinom(nrow(d), 1, p_chosen)
-  }
-}
+<!-- # Recode reward to [0, 1] -->
+<!-- dat$reward  <- dat$reward / 100 -->
+<!-- # Symbol presented on the left and right on each trial -->
+<!-- dat$s_left  <- paste0('s_', dat$appear_left) -->
+<!-- dat$s_right <- paste0('s_', dat$appear_right) -->
+<!-- # We also keep track of the 'exposure' - i.e., the number of times a stimulus pair has been presented. This is not required for fitting, but facilitates plotting later on. -->
+<!-- dat$exposure <- get_exposure(dat) -->
+<!-- dat$p_left  <- dat$p_win_left -->
+<!-- dat$p_right <- dat$p_win_right -->
+<!-- dat <- dat[, c('subjects', 'S', 'R', 'rt', 'reward', -->
+<!--                's_left', 's_right', 'p_left', 'p_right', 'exposure', 'missingness')] -->
+<!-- all_symbols <- unique(c(dat$s_left, dat$s_right)) -->
 
-make_RL_ARD_difference <- function(dadm, cov_names) {
-  lS      <- ifelse(dadm$lR == 'left', dadm$s_left,  dadm$s_right)
-  lSother <- ifelse(dadm$lR == 'left', dadm$s_right, dadm$s_left)
-  # +1 for own symbol, -1 for competing symbol (cf. RL-DDM: +1 right, -1 left)
-  codinglS      <- sapply(cov_names, function(col) as.numeric(lS      == col))
-  codinglSother <- sapply(cov_names, function(col) as.numeric(lSother == col))
-  codinglS - codinglSother
-}
+<!-- ``` -->
 
-make_RL_ARD_sum <- function(dadm, cov_names) {
-  lS      <- ifelse(dadm$lR == 'left', dadm$s_left,  dadm$s_right)
-  lSother <- ifelse(dadm$lR == 'left', dadm$s_right, dadm$s_left)
-  # +1 for both own and competing symbol
-  codinglS      <- sapply(cov_names, function(col) as.numeric(lS      == col))
-  codinglSother <- sapply(cov_names, function(col) as.numeric(lSother == col))
-  codinglS + codinglSother
-}
+<!-- We take the same functions for covariate generation, feedback generation, and covariate coding as above: -->
+<!-- ```{r missingness-functions} -->
+<!-- make_covariate_columns <- function(data) { -->
+<!--   RS <- ifelse(data$R == 'left', data$s_left, data$s_right) -->
+<!--   all_symbols <- unique(c(data$s_left, data$s_right)) -->
+<!--   setNames( -->
+<!--     lapply(all_symbols, function(sym) { -->
+<!--       out <- rep(NA, nrow(data)) -->
+<!--       out[RS == sym] <- data$reward[RS == sym] -->
+<!--       out -->
+<!--     }), -->
+<!--     all_symbols -->
+<!--   ) -->
+<!-- } -->
 
-```
+<!-- feedback_generator <- function(d) { -->
+<!--   if ("lR" %in% names(d) && nlevels(d$lR) > 1) { -->
+<!--     # Race model: dadm has one row per accumulator per trial. -->
+<!--     # Subset to one row per trial, generate rewards, then repeat -->
+<!--     # to match the full dadm length. -->
+<!--     data     <- d[d$lR == levels(d$lR)[1], ] -->
+<!--     p_chosen <- ifelse(data$R == 'left', data$p_left, data$p_right) -->
+<!--     rep(rbinom(nrow(data), 1, p_chosen), each = nlevels(d$lR)) -->
+<!--   } else { -->
+<!--     # DDM: dadm has one row per trial — generate rewards directly. -->
+<!--     p_chosen <- ifelse(d$R == 'left', d$p_left, d$p_right) -->
+<!--     rbinom(nrow(d), 1, p_chosen) -->
+<!--   } -->
+<!-- } -->
 
-And create the design as above as well:
-```{r missingness-design}
-delta_kernel_ard <- make_kernel(cov_names = all_symbols, type = 'delta')
+<!-- make_RL_ARD_difference <- function(dadm, cov_names) { -->
+<!--   lS      <- ifelse(dadm$lR == 'left', dadm$s_left,  dadm$s_right) -->
+<!--   lSother <- ifelse(dadm$lR == 'left', dadm$s_right, dadm$s_left) -->
+<!--   # +1 for own symbol, -1 for competing symbol (cf. RL-DDM: +1 right, -1 left) -->
+<!--   codinglS      <- sapply(cov_names, function(col) as.numeric(lS      == col)) -->
+<!--   codinglSother <- sapply(cov_names, function(col) as.numeric(lSother == col)) -->
+<!--   codinglS - codinglSother -->
+<!-- } -->
 
-base_diff <- make_base(target_parameter = 'v',
-                       type             = 'lin',
-                       kernel           = delta_kernel_ard,
-                       phase            = 'posttransform',
-                       coding           = list(d = make_RL_ARD_difference))
-base_sum  <- make_base(target_parameter = 'v',
-                       type             = 'lin',
-                       kernel           = delta_kernel_ard,
-                       phase            = 'posttransform',
-                       coding           = list(s = make_RL_ARD_sum))
-trend_ard <- make_trend(base_diff, base_sum)
+<!-- make_RL_ARD_sum <- function(dadm, cov_names) { -->
+<!--   lS      <- ifelse(dadm$lR == 'left', dadm$s_left,  dadm$s_right) -->
+<!--   lSother <- ifelse(dadm$lR == 'left', dadm$s_right, dadm$s_left) -->
+<!--   # +1 for both own and competing symbol -->
+<!--   codinglS      <- sapply(cov_names, function(col) as.numeric(lS      == col)) -->
+<!--   codinglSother <- sapply(cov_names, function(col) as.numeric(lSother == col)) -->
+<!--   codinglS + codinglSother -->
+<!-- } -->
 
-design_ARD <- design(model           = RDM,
-                     data            = dat,
-                     functions       = c(reward=feedback_generator,
-                                        covs=make_covariate_columns),
-                     matchfun        = function(d) d$S == d$lR,
-                     formula         = list(B ~ 1, v ~ 1, t0 ~ 1),
-                     trend           = trend_ard,
-                     constants       = c('v.q0' = 0),
-                     report_p_vector = FALSE)
+<!-- ``` -->
 
-emc_rlard <- make_emc(dat, design_ARD)
-```
+<!-- And create the design as above as well: -->
+<!-- ```{r missingness-design} -->
+<!-- delta_kernel_ard <- make_kernel(cov_names = all_symbols, type = 'delta') -->
 
-Which we should now be able to fit:
-```{r missingness-fit-code, eval=FALSE}
-emc_rlard <- fit(emc_rlard)
-check(emc_rlard)
-```
+<!-- base_diff <- make_base(target_parameter = 'v', -->
+<!--                        type             = 'lin', -->
+<!--                        kernel           = delta_kernel_ard, -->
+<!--                        phase            = 'posttransform', -->
+<!--                        coding           = list(d = make_RL_ARD_difference)) -->
+<!-- base_sum  <- make_base(target_parameter = 'v', -->
+<!--                        type             = 'lin', -->
+<!--                        kernel           = delta_kernel_ard, -->
+<!--                        phase            = 'posttransform', -->
+<!--                        coding           = list(s = make_RL_ARD_sum)) -->
+<!-- trend_ard <- make_trend(base_diff, base_sum) -->
 
-```{r missingness-fit-run, include=FALSE, dependson="missingness-design"}
-rlard_fn <- "./cache/exp1_rlard_missingness.RData"
-if (file.exists(rlard_fn)) {
-  emc_rlard <- EMC2:::loadRData(rlard_fn)
-} else {
-  emc_rlard <- make_emc(dat, design_ARD)
-  emc_rlard <- fit(emc_rlard, cores_per_chain = 5, fileName = rlard_fn)
-  emc_rlard <- add_ICs_MLL(emc_rlard)
-  save(emc_rlard, file = rlard_fn)
-}
-```
+<!-- design_ARD <- design(model           = RDM, -->
+<!--                      data            = dat, -->
+<!--                      functions       = c(reward=feedback_generator, -->
+<!--                                         covs=make_covariate_columns), -->
+<!--                      matchfun        = function(d) d$S == d$lR, -->
+<!--                      formula         = list(B ~ 1, v ~ 1, t0 ~ 1), -->
+<!--                      trend           = trend_ard, -->
+<!--                      constants       = c('v.q0' = 0), -->
+<!--                      report_p_vector = FALSE) -->
 
-```{r missingness-check-run, echo=FALSE, fig.width=fig_w[["1x3"]], fig.height=fig_h[["1x3"]], fig.cap=cap, dependson="missingness-fit-run"}
-par(mar = c(3, 3, 1.5, 0.5))  # opens device in this chunk before check() runs
-invisible(capture.output({ckc <- check(emc_rlard, plot_worst = FALSE, set.par=FALSE)}))
-subn <- which.max(lapply(ckc$alpha, function(x) max(x[1, ])))
-cap <- paste0(
-  "Trace plots of the sampled parameters with highest Rhat values (i.e., worst convergence) at the group-level mean (left, mu), the group-level variance (middle, sigma2), and the subject-level (alpha; here, subject ",
-  subn,
-  "). ESS = effective sample size."
-)
-print_par("1x3")
-check(emc_rlard, set.par = FALSE)
-```
+<!-- emc_rlard <- make_emc(dat, design_ARD) -->
+<!-- ``` -->
+
+<!-- Which we should now be able to fit: -->
+<!-- ```{r missingness-fit-code, eval=FALSE} -->
+<!-- emc_rlard <- fit(emc_rlard) -->
+<!-- check(emc_rlard) -->
+<!-- ``` -->
+
+<!-- ```{r missingness-fit-run, include=FALSE, dependson="missingness-design"} -->
+<!-- rlard_fn <- "./cache/exp1_rlard_missingness.RData" -->
+<!-- if (file.exists(rlard_fn)) { -->
+<!--   emc_rlard <- EMC2:::loadRData(rlard_fn) -->
+<!-- } else { -->
+<!--   emc_rlard <- make_emc(dat, design_ARD) -->
+<!--   emc_rlard <- fit(emc_rlard, cores_per_chain = 5, fileName = rlard_fn) -->
+<!--   emc_rlard <- add_ICs_MLL(emc_rlard) -->
+<!--   save(emc_rlard, file = rlard_fn) -->
+<!-- } -->
+<!-- ``` -->
+
+<!-- ```{r missingness-check-run, echo=FALSE, fig.width=fig_w[["1x3"]], fig.height=fig_h[["1x3"]], fig.cap=cap, dependson="missingness-fit-run"} -->
+<!-- par(mar = c(3, 3, 1.5, 0.5))  # opens device in this chunk before check() runs -->
+<!-- invisible(capture.output({ckc <- check(emc_rlard, plot_worst = FALSE, set.par=FALSE)})) -->
+<!-- subn <- which.max(lapply(ckc$alpha, function(x) max(x[1, ]))) -->
+<!-- cap <- paste0( -->
+<!--   "Trace plots of the sampled parameters with highest Rhat values (i.e., worst convergence) at the group-level mean (left, mu), the group-level variance (middle, sigma2), and the subject-level (alpha; here, subject ", -->
+<!--   subn, -->
+<!--   "). ESS = effective sample size." -->
+<!-- ) -->
+<!-- print_par("1x3") -->
+<!-- check(emc_rlard, set.par = FALSE) -->
+<!-- ``` -->
 
